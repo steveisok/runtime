@@ -101,6 +101,7 @@ struct arguments_t
     pal::string_t dotnet_shared_store;
     std::vector<pal::string_t> env_shared_store;
     pal::string_t additional_deps_serialized;
+    bool is_runtime_coreclr;
 
     int app_argc;
     const pal::char_t** app_argv;

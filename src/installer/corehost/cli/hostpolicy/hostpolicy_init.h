@@ -22,6 +22,7 @@ struct hostpolicy_init_t
     bool patch_roll_forward;
     bool prerelease_roll_forward;
     bool is_framework_dependent;
+    bool is_runtime_coreclr;
     pal::string_t host_command;
     host_startup_info_t host_info;
 

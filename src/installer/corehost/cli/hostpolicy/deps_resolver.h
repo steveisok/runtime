@@ -46,13 +46,15 @@ public:
         const arguments_t& args,
         fx_definition_vector_t& fx_definitions,
         const deps_json_t::rid_fallback_graph_t* root_framework_rid_fallback_graph,
-        bool is_framework_dependent)
+        bool is_framework_dependent,
+        bool is_runtime_coreclr)
         : m_fx_definitions(fx_definitions)
         , m_app_dir(args.app_root)
         , m_host_mode(args.host_mode)
         , m_managed_app(args.managed_application)
         , m_core_servicing(args.core_servicing)
         , m_is_framework_dependent(is_framework_dependent)
+        , m_is_runtime_coreclr(is_runtime_coreclr)
     {
         int lowest_framework = m_fx_definitions.size() - 1;
         int root_framework = -1;
@@ -264,6 +266,8 @@ private:
 
     // Is the deps file for an app using shared frameworks?
     const bool m_is_framework_dependent;
+
+    const bool m_is_runtime_coreclr;
 };
 
 #endif // DEPS_RESOLVER_H

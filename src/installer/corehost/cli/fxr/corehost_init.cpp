@@ -20,7 +20,8 @@ corehost_init_t::corehost_init_t(
     const pal::string_t& additional_deps_serialized,
     const std::vector<pal::string_t>& probe_paths,
     const host_mode_t mode,
-    const fx_definition_vector_t& fx_definitions)
+    const fx_definition_vector_t& fx_definitions,
+    const bool is_runtime_coreclr)
     : m_tfm(get_app(fx_definitions).get_runtime_config().get_tfm())
     , m_deps_file(deps_file)
     , m_additional_deps_serialized(additional_deps_serialized)
@@ -32,6 +33,7 @@ corehost_init_t::corehost_init_t(
     , m_host_info_host_path(host_info.host_path)
     , m_host_info_dotnet_root(host_info.dotnet_root)
     , m_host_info_app_path(host_info.app_path)
+    , m_is_runtime_coreclr(is_runtime_coreclr)
 {
     make_cstr_arr(m_probe_paths, &m_probe_paths_cstr);
 
@@ -131,6 +133,8 @@ const host_interface_t& corehost_init_t::get_host_init_data()
     hi.host_info_host_path = m_host_info_host_path.c_str();
     hi.host_info_dotnet_root = m_host_info_dotnet_root.c_str();
     hi.host_info_app_path = m_host_info_app_path.c_str();
+    
+    hi.is_runtime_coreclr = m_is_runtime_coreclr;
 
     return hi;
 }

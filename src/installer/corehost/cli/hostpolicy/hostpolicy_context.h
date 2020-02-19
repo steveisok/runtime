@@ -20,7 +20,8 @@ public:
     pal::string_t clr_path;
     host_mode_t host_mode;
     pal::string_t host_path;
-
+    bool is_runtime_coreclr;
+    
     bool breadcrumbs_enabled;
     mutable std::unordered_set<pal::string_t> breadcrumbs;
 

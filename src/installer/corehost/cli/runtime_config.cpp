@@ -179,6 +179,12 @@ bool runtime_config_t::parse_opts(const json_parser_t::value_t& opts)
         m_tfm = tfm->value.GetString();
     }
 
+    const auto& runtime_vm = opts_obj.FindMember(_X("vm"));
+    if (runtime_vm != opts_obj.MemberEnd())
+    {
+        m_runtime_vm = runtime_vm->value.GetString();
+    }
+
     // Step #3: read the "framework" and "frameworks" section
     const auto& framework = opts_obj.FindMember(_X("framework"));
     if (framework != opts_obj.MemberEnd())
@@ -425,6 +431,12 @@ const pal::string_t& runtime_config_t::get_tfm() const
     return m_tfm;
 }
 
+const pal::string_t& runtime_config_t::get_runtime_vm() const
+{
+    assert(m_valid);
+    return m_runtime_vm;
+}
+
 bool runtime_config_t::get_is_framework_dependent() const
 {
     return m_is_framework_dependent;
@@ -455,6 +467,11 @@ void runtime_config_t::set_fx_version(pal::string_t version)
     m_frameworks[0].set_fx_version(version);
     m_frameworks[0].set_apply_patches(false);
     m_frameworks[0].set_roll_forward(roll_forward_option::Disable);
+}
+
+void runtime_config_t::set_runtime_vm(pal::string_t runtime_vm)
+{
+    m_runtime_vm.assign(runtime_vm);
 }
 
 bool runtime_config_t::mark_specified_setting(specified_setting setting)

@@ -23,7 +23,7 @@ private:
     std::vector<pal::string_t> m_probe_paths;
     std::vector<const pal::char_t*> m_probe_paths_cstr;
     host_mode_t m_host_mode;
-    host_interface_t m_host_interface;
+    host_interface_t m_host_interface;    
     std::vector<pal::string_t> m_fx_names;
     std::vector<const pal::char_t*> m_fx_names_cstr;
     std::vector<pal::string_t> m_fx_dirs;
@@ -37,6 +37,7 @@ private:
     const pal::string_t m_host_info_host_path;
     const pal::string_t m_host_info_dotnet_root;
     const pal::string_t m_host_info_app_path;
+    bool m_is_runtime_coreclr;
 public:
     corehost_init_t(
         const pal::string_t& host_command,
@@ -45,7 +46,8 @@ public:
         const pal::string_t& additional_deps_serialized,
         const std::vector<pal::string_t>& probe_paths,
         const host_mode_t mode,
-        const fx_definition_vector_t& fx_definitions);
+        const fx_definition_vector_t& fx_definitions,
+        const bool is_runtime_coreclr);
 
     const host_interface_t& get_host_init_data();
 

@@ -418,6 +418,40 @@ namespace
         runtime_config_t app_config = app->get_runtime_config();
         bool is_framework_dependent = app_config.get_is_framework_dependent();
 
+        trace::verbose(_X("*** OPT SIZE: %d"), opts.size());
+        pal::string_t runtime_vm = command_line::get_option_value(opts, known_options::runtime_vm, _X(""));
+        bool is_runtime_coreclr;
+
+        if (runtime_vm.length() > 0)
+        {
+            trace::verbose(_X("*** RUNTIME: GETTTING FROM COMMAND LINE"));
+            app_config.set_runtime_vm(runtime_vm);
+        }
+        else
+        {
+            trace::verbose(_X("*** RUNTIME: GETTTING FROM CONFIG"));
+            runtime_vm = app_config.get_runtime_vm();
+        }
+
+        if (pal::strcasecmp(_X("coreclr"), runtime_vm.c_str()) == 0)
+        {
+            trace::verbose(_X("*** RUNTIME: CoreCLR"));
+            is_runtime_coreclr = true;
+        }
+        else
+        {
+            if (runtime_vm.length() == 0)
+            {
+                trace::verbose(_X("*** RUNTIME: EMPTY CONFIG - DEFAULT Mono"));
+            }
+            else
+            {
+                trace::verbose(_X("*** RUNTIME: CONFIG VALUE: %s"), runtime_vm.c_str());
+            }
+            
+            is_runtime_coreclr = false;
+        }
+
         pal::string_t additional_deps_serialized;
         if (is_framework_dependent)
         {
@@ -466,7 +500,7 @@ namespace
             return CoreHostLibMissingFailure;
         }
 
-        init.reset(new corehost_init_t(host_command, host_info, deps_file, additional_deps_serialized, probe_realpaths, mode, fx_definitions));
+        init.reset(new corehost_init_t(host_command, host_info, deps_file, additional_deps_serialized, probe_realpaths, mode, fx_definitions, is_runtime_coreclr));
 
         return StatusCode::Success;
     }
@@ -529,11 +563,20 @@ int fx_muxer_t::execute(
     pal::string_t app_candidate;
     opt_map_t opts;
     int result = command_line::parse_args_for_mode(mode, host_info, argc, argv, &new_argoff, app_candidate, opts);
+
+    trace::verbose(_X("**** FX_MUXER_T OPT SIZE: %d"), (opts).size());
+
     if (static_cast<StatusCode>(result) == AppArgNotRunnable)
     {
         if (host_command.empty())
         {
-            return handle_cli(host_info, argc, argv, app_candidate);
+            trace::verbose(_X("**** FX_MUXER_T HANDLE CLI"));
+            return handle_cli(
+                host_info, 
+                argc, 
+                argv, 
+                app_candidate,
+                opts);
         }
         else
         {
@@ -543,6 +586,7 @@ int fx_muxer_t::execute(
 
     if (!result)
     {
+        trace::verbose(_X("**** FX_MUXER_T HANDLE_EXEC_HOST_COMMAND"));
         // Transform dotnet [exec] [--additionalprobingpath path] [--depsfile file] [dll] [args] -> dotnet [dll] [args]
         result = handle_exec_host_command(
             host_command,
@@ -602,7 +646,7 @@ namespace
         }
 
         const pal::string_t additional_deps_serialized;
-        init.reset(new corehost_init_t(pal::string_t{}, host_info, deps_file, additional_deps_serialized, probe_realpaths, mode, fx_definitions));
+        init.reset(new corehost_init_t(pal::string_t{}, host_info, deps_file, additional_deps_serialized, probe_realpaths, mode, fx_definitions, true));
 
         return StatusCode::Success;
     }
@@ -972,7 +1016,8 @@ int fx_muxer_t::handle_cli(
     const host_startup_info_t& host_info,
     int argc,
     const pal::char_t* argv[],
-    const pal::string_t& app_candidate)
+    const pal::string_t& app_candidate,
+    opt_map_t &opts)
 {
     // Check for commands that don't depend on the CLI SDK to be loaded
     if (pal::strcasecmp(_X("--list-sdks"), argv[1]) == 0)
@@ -1027,6 +1072,8 @@ int fx_muxer_t::handle_cli(
         return StatusCode::LibHostSdkFindFailure;
     }
 
+    trace::verbose(_X("*** HANDLE CLI OPTS: %d"), opts.size());
+
     // Transform dotnet [command] [args] -> dotnet dotnet.dll [command] [args]
 
     std::vector<const pal::char_t*> new_argv;
@@ -1039,7 +1086,7 @@ int fx_muxer_t::handle_cli(
 
     int new_argoff;
     pal::string_t sdk_app_candidate;
-    opt_map_t opts;
+    //opt_map_t opts;
     int result = command_line::parse_args_for_sdk_command(host_info, new_argv.size(), new_argv.data(), &new_argoff, sdk_app_candidate, opts);
     if (!result)
     {

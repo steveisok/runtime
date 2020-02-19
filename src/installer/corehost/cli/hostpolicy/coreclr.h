@@ -22,6 +22,7 @@ public: // static
         const pal::string_t& libcoreclr_path,
         const char* exe_path,
         const char* app_domain_friendly_name,
+        bool is_runtime_coreclr,
         const coreclr_property_bag_t &properties,
         std::unique_ptr<coreclr_t> &inst);
 

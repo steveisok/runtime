@@ -70,11 +70,12 @@ namespace
             const char *app_domain_friendly_name = g_context->host_mode == host_mode_t::libhost ? "clr_libhost" : "clrhost";
 
             // Create a CoreCLR instance
-            trace::verbose(_X("CoreCLR path = '%s', CoreCLR dir = '%s'"), g_context->clr_path.c_str(), g_context->clr_dir.c_str());
+            trace::verbose(_X("Runtime VM path = '%s', Runtime VM dir = '%s'"), g_context->clr_path.c_str(), g_context->clr_dir.c_str());
             auto hr = coreclr_t::create(
                 g_context->clr_dir,
                 host_path.data(),
                 app_domain_friendly_name,
+                g_context->is_runtime_coreclr,
                 g_context->coreclr_properties,
                 g_context->coreclr);
 
@@ -853,7 +854,8 @@ SHARED_API int HOSTPOLICY_CALLTYPE corehost_resolve_component_dependencies(
         args,
         component_fx_definitions,
         &get_root_framework(g_init.fx_definitions).get_deps().get_rid_fallback_graph(),
-        true);
+        true,
+        g_init.is_runtime_coreclr);
 
     pal::string_t resolver_errors;
     if (!resolver.valid(&resolver_errors))

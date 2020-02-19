@@ -581,15 +581,38 @@ bool deps_resolver_t::resolve_tpa_list(
  */
 void deps_resolver_t::init_known_entry_path(const deps_entry_t& entry, const pal::string_t& path)
 {
+    pal::string_t lib_source_path;
+    pal::string_t entry_path;
+
     if (entry.asset_type != deps_entry_t::asset_types::native)
     {
         return;
     }
 
     assert(pal::is_path_rooted(path));
-    if (m_coreclr_path.empty() && ends_with(path, DIR_SEPARATOR + pal::string_t(LIBCORECLR_NAME), false))
+
+    trace::verbose(_X("***ENTRY PATH PATH: '%s'"), path.c_str());
+
+    if (m_is_runtime_coreclr)
     {
-        m_coreclr_path = path;
+        lib_source_path.append(path);
+        entry_path.append(DIR_SEPARATOR + pal::string_t(LIBCORECLR_NAME));
+        trace::verbose(_X("***ENTRY PATH CORECLR: '%s'"), entry_path.c_str()); 
+    }
+    else
+    {
+        lib_source_path.append(get_directory(path) + pal::string_t(_X("mono")) + DIR_SEPARATOR + pal::string_t(LIBMONO_NAME));
+        entry_path.append(DIR_SEPARATOR + pal::string_t(_X("mono")) + DIR_SEPARATOR + pal::string_t(LIBMONO_NAME));
+        //entry_path.append(DIR_SEPARATOR + pal::string_t(LIBMONO_NAME));
+        trace::verbose(_X("***ENTRY PATH MONO: '%s'"), entry_path.c_str());
+    }
+
+    trace::verbose(_X("***ENTRY PATH LIB_SOURCE_PATH: '%s'"), lib_source_path.c_str());
+
+    if (m_coreclr_path.empty() && ends_with(lib_source_path, entry_path, false))
+    {
+        trace::verbose(_X("***FOUND CORECLR PATH: '%s'"), lib_source_path.c_str());
+        m_coreclr_path = lib_source_path;
         m_coreclr_library_version = entry.library_version;
         return;
     }
@@ -825,7 +848,20 @@ bool deps_resolver_t::resolve_probe_dirs(
         // App local path
         add_unique_path(asset_type, m_app_dir, &items, output, &non_serviced, core_servicing);
 
-        (void) library_exists_in_dir(m_app_dir, LIBCORECLR_NAME, &m_coreclr_path);
+        if (m_is_runtime_coreclr)
+        {            
+            (void)library_exists_in_dir(m_app_dir, LIBCORECLR_NAME, &m_coreclr_path);
+            trace::verbose(_X("***LIBRARY EXISTS IN DIR CORECLR: '%s'"), m_coreclr_path.c_str());
+        }
+        else
+        {
+            // do something about mono/LIBMONO_NAME
+            pal::string_t mono_app_dir(m_app_dir);
+            append_path(&mono_app_dir, "mono");
+            (void) library_exists_in_dir(mono_app_dir, LIBMONO_NAME, &m_coreclr_path);
+            trace::verbose(_X("***LIBRARY EXISTS IN DIR MONO: '%s'"), m_coreclr_path.c_str());
+        }
+
         (void) library_exists_in_dir(m_app_dir, LIBCLRJIT_NAME, &m_clrjit_path);
     }
 

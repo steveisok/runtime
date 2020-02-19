@@ -21,13 +21,14 @@ namespace
 
     const host_option KnownHostOptions[] =
     {
-        { _X("--additionalprobingpath"), _X("<path>"), _X("Path containing probing policy and assemblies to probe for.") },
+        { _X("--additionalprobingpath"), _X("<path>"), _X("Path containing probing policy and assemblies to probe for.") },        
         { _X("--depsfile"), _X("<path>"), _X("Path to <application>.deps.json file.") },
         { _X("--runtimeconfig"), _X("<path>"), _X("Path to <application>.runtimeconfig.json file.") },
         { _X("--fx-version"), _X("<version>"), _X("Version of the installed Shared Framework to use to run the application.") },
         { _X("--roll-forward"), _X("<value>"), _X("Roll forward to framework version (LatestPatch, Minor, LatestMinor, Major, LatestMajor, Disable)") },
         { _X("--additional-deps"), _X("<path>"), _X("Path to additional deps.json file.") },
-        { _X("--roll-forward-on-no-candidate-fx"), _X("<n>"), _X("<obsolete>") }
+        { _X("--roll-forward-on-no-candidate-fx"), _X("<n>"), _X("<obsolete>") },
+        { _X("--vm"), _X("<value>"), _X("Runtime VM (coreclr or mono)") }
     };
     static_assert((sizeof(KnownHostOptions) / sizeof(*KnownHostOptions)) == static_cast<size_t>(known_options::__last), "Invalid host option count");
 
@@ -42,7 +43,7 @@ namespace
     {
         std::vector<known_options> known_opts;
         known_opts.reserve(static_cast<int>(known_options::__last));
-        known_opts.push_back(known_options::additional_probing_path);
+        known_opts.push_back(known_options::additional_probing_path);        
         if (for_cli_usage || exec_mode || mode == host_mode_t::split_fx || mode == host_mode_t::apphost)
         {
             known_opts.push_back(known_options::deps_file);
@@ -63,6 +64,8 @@ namespace
             }
         }
 
+        known_opts.push_back(known_options::runtime_vm);
+
         return known_opts;
     }
 
@@ -70,6 +73,7 @@ namespace
     {
         int idx = static_cast<int>(opt);
         assert(0 <= idx && idx < static_cast<int>(known_options::__last));
+        //trace::verbose(_X("*** GETTING KNOWN HOST OPTION %s"), KnownHostOptions[idx].option.c_str());
         return KnownHostOptions[idx];
     }
 
@@ -98,12 +102,14 @@ namespace
             // Known argument, so expect one more arg (value) to be present.
             if (arg_i + 1 >= argc)
             {
+                trace::verbose(_X("Known Arg Return if block"));
                 return false;
             }
 
             trace::verbose(_X("Parsed known arg %s = %s"), arg.c_str(), argv[arg_i + 1]);
             (*opts)[*iter].push_back(argv[arg_i + 1]);
 
+            trace::verbose(_X("Known Arg Parse Opt Size: %d"), (*opts).size());
             // Increment for both the option and its value.
             arg_i += 2;
         }
@@ -138,6 +144,8 @@ namespace
             }
             return StatusCode::InvalidArgFailure;
         }
+        
+        trace::verbose(_X("**** Parse ARGS Known Arg Parse Opt Size: %d"), (opts).size());
 
         *new_argoff = argoff + num_parsed;
         bool doesAppExist = false;
@@ -205,9 +213,15 @@ pal::string_t command_line::get_option_value(
 {
     if (opts.count(opt))
     {
+        
         const auto& val = opts.find(opt)->second;
-        return val[val.size() - 1];
+        pal::string_t opt_value = val[val.size() - 1];
+        trace::verbose(_X("****GET OPTION VALUE: %s"), opt_value.c_str());
+        return opt_value;
+        //return val[val.size() - 1];
     }
+
+    trace::verbose(_X("****GET OPTION DEFAULT: %d"), static_cast<int>(opt));
     return default_value;
 }
 
@@ -264,6 +278,8 @@ int command_line::parse_args_for_mode(
         }
     }
 
+    trace::verbose(_X("**** Parse ARGS For MODE Opt Size: %d"), (opts).size());
+
     return result;
 }
 
@@ -276,7 +292,9 @@ int command_line::parse_args_for_sdk_command(
     /*out*/ opt_map_t &opts)
 {
     // arg offset 1 for dotnet
-    return parse_args(host_info, 1, argc, argv, false, host_mode_t::muxer, new_argoff, app_candidate, opts);
+    int ret = parse_args(host_info, 1, argc, argv, false, host_mode_t::muxer, new_argoff, app_candidate, opts);
+    trace::verbose(_X("**** Parse ARGS For COMMAND Opt Size: %d"), (opts).size());
+    return ret;
 }
 
 void command_line::print_muxer_info(const pal::string_t &dotnet_root)

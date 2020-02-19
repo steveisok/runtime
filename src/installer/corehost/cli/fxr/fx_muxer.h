@@ -55,5 +55,6 @@ private:
         const host_startup_info_t& host_info,
         int argc,
         const pal::char_t* argv[],
-        const pal::string_t& app_candidate);
+        const pal::string_t& app_candidate,
+        opt_map_t &opts);
 };

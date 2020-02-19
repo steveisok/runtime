@@ -57,6 +57,17 @@ bool hostpolicy_init_t::init(host_interface_t* input, hostpolicy_init_t* init)
     {
         init->tfm = input->tfm;
     }
+
+    if (input->version_lo >= offsetof(host_interface_t, is_runtime_coreclr) + sizeof(input->is_runtime_coreclr))
+    {
+        trace::verbose(_X("****HOST INTERFACE IS RUNTIME CORECLR"));
+        init->is_runtime_coreclr = input->is_runtime_coreclr;
+    }
+    else
+    {
+        trace::verbose(_X("****HOST INTERFACE IS RUNTIME DEFAULT (OLD HOSTFXR"));
+        init->is_runtime_coreclr = true;
+    }
     
     if (input->version_lo >= offsetof(host_interface_t, fx_ver) + sizeof(input->fx_ver))
     {

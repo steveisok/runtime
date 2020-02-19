@@ -50,15 +50,25 @@ namespace
     coreclr_execute_assembly_fn coreclr_execute_assembly = nullptr;
     coreclr_create_delegate_fn coreclr_create_delegate = nullptr;
 
-    bool coreclr_bind(const pal::string_t& libcoreclr_path)
+    bool coreclr_bind(const pal::string_t& libcoreclr_path, const bool is_runtime_coreclr)
     {
         assert(g_coreclr == nullptr);
 
-        pal::string_t coreclr_dll_path(libcoreclr_path);
-        append_path(&coreclr_dll_path, LIBCORECLR_NAME);
+        pal::string_t runtime_dll_path(libcoreclr_path);
 
-        if (!pal::load_library(&coreclr_dll_path, &g_coreclr))
+        if (is_runtime_coreclr)
         {
+            trace::verbose(_X("CoreCLR bind: CORECLR"));
+            append_path(&runtime_dll_path, LIBCORECLR_NAME);
+        }
+        else
+        {
+            trace::verbose(_X("CoreCLR bind: MONO"));            
+            append_path(&runtime_dll_path, LIBMONO_NAME);
+        }
+        
+        if (!pal::load_library(&runtime_dll_path, &g_coreclr))
+        {            
             return false;
         }
 
@@ -80,10 +90,11 @@ pal::hresult_t coreclr_t::create(
     const pal::string_t& libcoreclr_path,
     const char* exe_path,
     const char* app_domain_friendly_name,
+    bool is_runtime_coreclr,
     const coreclr_property_bag_t &properties,
     std::unique_ptr<coreclr_t> &inst)
 {
-    if (!coreclr_bind(libcoreclr_path))
+    if (!coreclr_bind(libcoreclr_path, is_runtime_coreclr))
     {
         trace::error(_X("Failed to bind to CoreCLR at '%s'"), libcoreclr_path.c_str());
         return StatusCode::CoreClrBindFailure;
@@ -130,7 +141,7 @@ pal::hresult_t coreclr_t::create(
 coreclr_t::coreclr_t(host_handle_t host_handle, domain_id_t domain_id)
     : _is_shutdown{ false }
     , _host_handle{ host_handle }
-    , _domain_id{ domain_id }
+    , _domain_id{ domain_id }    
 {
 }
 

@@ -24,9 +24,12 @@ bool library_exists_in_dir(const pal::string_t& lib_dir, const pal::string_t& li
 bool coreclr_exists_in_dir(const pal::string_t& candidate)
 {
     pal::string_t test(candidate);
+    pal::string_t mono_test(candidate);
     append_path(&test, LIBCORECLR_NAME);
+    append_path(&mono_test, LIBMONO_NAME);
     trace::verbose(_X("Checking if CoreCLR path exists=[%s]"), test.c_str());
-    return pal::file_exists(test);
+    trace::verbose(_X("Also checking if Mono path exists=[%s]"), mono_test.c_str());
+    return pal::file_exists(test) || pal::file_exists(mono_test);
 }
 
 bool ends_with(const pal::string_t& value, const pal::string_t& suffix, bool match_case)

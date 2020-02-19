@@ -83,6 +83,9 @@
 #define LIBCORECLR_FILENAME (LIB_PREFIX _X("coreclr"))
 #define LIBCORECLR_NAME MAKE_LIBNAME("coreclr")
 
+#define LIBMONO_FILENAME (LIB_PREFIX _X("mono"))
+#define LIBMONO_NAME MAKE_LIBNAME("mono")
+
 #define CORELIB_NAME _X("System.Private.CoreLib.dll")
 
 #define LIBHOSTPOLICY_FILENAME (LIB_PREFIX _X("hostpolicy"))

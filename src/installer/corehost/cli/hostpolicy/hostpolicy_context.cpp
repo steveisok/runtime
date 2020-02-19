@@ -23,13 +23,15 @@ int hostpolicy_context_t::initialize(hostpolicy_init_t &hostpolicy_init, const a
     host_mode = hostpolicy_init.host_mode;
     host_path = args.host_path;
     breadcrumbs_enabled = enable_breadcrumbs;
+    is_runtime_coreclr = hostpolicy_init.is_runtime_coreclr;
 
     deps_resolver_t resolver
         {
             args,
             hostpolicy_init.fx_definitions,
             /* root_framework_rid_fallback_graph */ nullptr, // This means that the fx_definitions contains the root framework
-            hostpolicy_init.is_framework_dependent
+            hostpolicy_init.is_framework_dependent,
+            hostpolicy_init.is_runtime_coreclr
         };
 
     pal::string_t resolver_errors;
