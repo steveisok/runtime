@@ -13,7 +13,7 @@
   </PropertyGroup>
 
   <Target Name="GetBinPlaceItems">
-    <ItemGroup>
+    <ItemGroup Condition="'$(BinPlaceTestRuntimePack)' == ''">
       <BinPlaceItem Include="$(NativeBinDir)/*.dll" />
       <BinPlaceItem Include="$(NativeBinDir)/*.pdb" />
       <BinPlaceItem Include="$(NativeBinDir)/*.lib" />
@@ -23,7 +23,19 @@
       <BinPlaceItem Include="$(NativeBinDir)/*.dbg" />
       <BinPlaceItem Include="$(NativeBinDir)/*.dylib" />
       <BinPlaceItem Include="$(NativeBinDir)/*.dwarf" />
-      <FileWrites Include="@(BinPlaceItem)" />
+      <FileWrites Include="@(NativeRuntimePackBinPlace)" />
+    </ItemGroup>
+    <ItemGroup Condition="'$(BinPlaceTestRuntimePack)' == 'true'">
+      <NativeRuntimePackBinPlaceItem Include="$(NativeBinDir)/*.dll" />
+      <NativeRuntimePackBinPlaceItem Include="$(NativeBinDir)/*.pdb" />
+      <NativeRuntimePackBinPlaceItem Include="$(NativeBinDir)/*.lib" />
+      <NativeRuntimePackBinPlaceItem Include="$(NativeBinDir)/*.a" />
+      <NativeRuntimePackBinPlaceItem Include="$(NativeBinDir)/*.bc" />
+      <NativeRuntimePackBinPlaceItem Include="$(NativeBinDir)/*.so" />
+      <NativeRuntimePackBinPlaceItem Include="$(NativeBinDir)/*.dbg" />
+      <NativeRuntimePackBinPlaceItem Include="$(NativeBinDir)/*.dylib" />
+      <NativeRuntimePackBinPlaceItem Include="$(NativeBinDir)/*.dwarf" />
+      <FileWrites Include="@(NativeRuntimePackBinPlaceItem)" />
     </ItemGroup>
   </Target>
 </Project>
