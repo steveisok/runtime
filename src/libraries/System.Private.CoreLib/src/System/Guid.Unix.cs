@@ -9,8 +9,10 @@ namespace System
         // This will create a new random guid based on the https://www.ietf.org/rfc/rfc4122.txt
         public static unsafe Guid NewGuid()
         {
-            Guid g;
-            Interop.GetRandomBytes((byte*)&g, sizeof(Guid));
+            //Guid g;
+            //Interop.GetRandomBytes((byte*)&g, sizeof(Guid));
+            string ret = Interop.Runtime.InvokeJS("crypto.getRandomValues(new Uint32Array(16))");
+            var g = new Guid(System.Text.Encoding.ASCII.GetBytes(ret));
 
             const ushort VersionMask = 0xF000;
             const ushort RandomGuidVersion = 0x4000;

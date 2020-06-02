@@ -10,3 +10,10 @@ public class Test
         Console.WriteLine ("Hello, World!");
     }
 }
+
+public class Sample {
+    public static void Go() {
+        var g = Guid.NewGuid();
+        Console.WriteLine("ID: " + g.ToString());
+    }
+}

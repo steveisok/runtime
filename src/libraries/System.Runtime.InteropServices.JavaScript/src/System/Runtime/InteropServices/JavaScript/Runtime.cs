@@ -25,7 +25,7 @@ namespace System.Runtime.InteropServices.JavaScript
 
         public static System.Runtime.InteropServices.JavaScript.Function? CompileFunction(string snippet)
         {
-            return Interop.Runtime.CompileFunction(snippet);
+            return Interop.Runtime.CompileFunction(snippet) as System.Runtime.InteropServices.JavaScript.Function;
         }
 
         public static int New<T>(params object[] parms)

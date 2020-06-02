@@ -16,6 +16,7 @@
     <WasmPInvokeAssemblies Include="$(ArtifactsBinDir)\System.Runtime.InteropServices.RuntimeInformation\$(NetCoreAppCurrent)-Unix-$(Configuration)\System.Runtime.InteropServices.RuntimeInformation.dll"/>
     <WasmPInvokeAssemblies Include="$(ArtifactsBinDir)\System.IO.FileSystem\$(NetCoreAppCurrent)-Unix-$(Configuration)\System.IO.FileSystem.dll"/>
     <WasmPInvokeAssemblies Include="$(ArtifactsBinDir)\System.IO.FileSystem.DriveInfo\$(NetCoreAppCurrent)-Unix-$(Configuration)\System.IO.FileSystem.DriveInfo.dll"/>
+    <WasmPInvokeAssemblies Include="$(ArtifactsBinDir)\System.Runtime.InteropServices.JavaScript\$(NetCoreAppCurrent)-Browser-$(Configuration)\System.Runtime.InteropServices.JavaScript.dll"/>
   </ItemGroup>
 
   <Target Name="CheckEnv">
