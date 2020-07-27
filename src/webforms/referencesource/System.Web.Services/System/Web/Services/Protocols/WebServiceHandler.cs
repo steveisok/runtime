@@ -24,7 +24,7 @@ namespace System.Web.Services.Protocols {
     using System.Web.UI.WebControls;
     using System.ComponentModel; // for CompModSwitches
     using System.EnterpriseServices;
-    using System.Runtime.Remoting.Messaging;
+    //using System.Runtime.Remoting.Messaging;
     using System.Web.Services.Diagnostics;
 
     internal class WebServiceHandler {

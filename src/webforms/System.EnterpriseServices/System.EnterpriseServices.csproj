@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net5.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <NoWarn>1699,168,612,618,649</NoWarn>
+    <!--<SignAssembly>true</SignAssembly>
+    <AssemblyOriginatorKeyFile>../msfinal.pub</AssemblyOriginatorKeyFile>-->
+    <DefineConstants>NET_4_0;NET_4_5;NET_4_6;MONO;WIN_PLATFORM;MONO_BROKEN_CONFIGURATION_DLL;FEATURE_PAL</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+      <Compile Include="..\build\common\Consts.cs" />
+      <Compile Include="src/System/EnterpriseServices/TransactionOption.cs" />
+    </ItemGroup>
+
+</Project>

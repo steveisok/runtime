@@ -16,6 +16,9 @@
       <Private>False</Private>
     </Reference>
 
+    <ProjectReference Include="../System.EnterpriseServices/System.EnterpriseServices.csproj" />
+    <ProjectReference Include="../System.Xml.Extensions/System.Xml.Extensions.csproj" />
+
     <PackageReference Include="System.Configuration.ConfigurationManager" Version="5.0.0-preview.4.20251.6"/>
     <PackageReference Include="System.Data.Common" Version="4.3.0" />
     <PackageReference Include="System.DirectoryServices" Version="5.0.0-preview.4.20251.6" />

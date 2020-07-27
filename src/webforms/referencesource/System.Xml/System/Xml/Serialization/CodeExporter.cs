@@ -24,7 +24,6 @@ namespace System.Xml.Serialization {
     /// <devdoc>
     ///    <para>[To be supplied.]</para>
     /// </devdoc>
-    [PermissionSet(SecurityAction.InheritanceDemand, Name="FullTrust")]
     public abstract class CodeExporter {
         Hashtable exportedMappings;
         Hashtable exportedClasses; // TypeMapping -> CodeTypeDeclaration

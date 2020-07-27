@@ -17,7 +17,6 @@ namespace System.Xml.Serialization {
     using System.Reflection;
     using System.Globalization;
     using System.Diagnostics;
-    using System.Security.Permissions;
     using System.Xml.Serialization.Advanced;
 
     /// <include file='doc\XmlCodeExporter.uex' path='docs/doc[@for="XmlCodeExporter"]/*' />
@@ -557,7 +556,6 @@ namespace System.Xml.Serialization {
             return codeClass;
         }
 
-        [PermissionSet(SecurityAction.InheritanceDemand, Name="FullTrust")]
         internal override void ExportDerivedStructs(StructMapping mapping) {
             for (StructMapping derived = mapping.DerivedMappings; derived != null; derived = derived.NextDerivedMapping)
                 ExportType(derived, mapping.Namespace);

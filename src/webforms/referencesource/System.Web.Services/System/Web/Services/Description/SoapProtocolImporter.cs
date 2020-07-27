@@ -15,7 +15,7 @@ namespace System.Web.Services.Description {
     using System.Collections;
     using System;
     using System.Data;
-    using System.Data.Design;
+    //using System.Data.Design;
     using System.Reflection;
     using System.CodeDom;
     using System.CodeDom.Compiler;
@@ -249,8 +249,8 @@ namespace System.Web.Services.Description {
     /// <devdoc>
     ///    <para>[To be supplied.]</para>
     /// </devdoc>
-    [PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
-    [PermissionSet(SecurityAction.InheritanceDemand, Name = "FullTrust")]
+    //[PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
+    //[PermissionSet(SecurityAction.InheritanceDemand, Name = "FullTrust")]
     public class SoapProtocolImporter : ProtocolImporter {
         XmlSchemaImporter xmlImporter;
         XmlCodeExporter xmlExporter;
