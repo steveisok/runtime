@@ -1,3 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- required in order to include runtime facade to obsoleted type System.Xml.IApplicationResourceStreamResolver -->
+  <ItemGroup>
+    <Compile Include="System.Xml.forwards.cs" />
+  </ItemGroup>
 </Project>
