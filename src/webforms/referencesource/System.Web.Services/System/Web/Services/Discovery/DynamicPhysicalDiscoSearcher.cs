@@ -10,7 +10,7 @@ namespace System.Web.Services.Discovery {
     using System.Collections;
     using System.Diagnostics;
     using System.Text;
-    using System.DirectoryServices;
+    //using System.DirectoryServices;
     using System.ComponentModel;
 
     

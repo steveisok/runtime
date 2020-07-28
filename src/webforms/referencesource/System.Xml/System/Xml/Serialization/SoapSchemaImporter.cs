@@ -208,7 +208,6 @@ namespace System.Xml.Serialization  {
             return mapping;
         }
 
-        [PermissionSet(SecurityAction.InheritanceDemand, Name="FullTrust")]
         internal override void ImportDerivedTypes(XmlQualifiedName baseName) {
             foreach (XmlSchema schema in Schemas) {
                 if (Schemas.IsReference(schema)) continue;

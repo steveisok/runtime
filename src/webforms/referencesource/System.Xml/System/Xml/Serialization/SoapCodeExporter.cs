@@ -168,7 +168,6 @@ namespace System.Xml.Serialization {
             return codeClass;
         }
 
-        [PermissionSet(SecurityAction.InheritanceDemand, Name="FullTrust")]
         internal override void ExportDerivedStructs(StructMapping mapping) {
             for (StructMapping derived = mapping.DerivedMappings; derived != null; derived = derived.NextDerivedMapping)
                 ExportType(derived);

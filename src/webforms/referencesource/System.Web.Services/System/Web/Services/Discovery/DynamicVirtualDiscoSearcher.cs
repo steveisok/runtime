@@ -10,7 +10,7 @@ namespace System.Web.Services.Discovery {
     using System.Collections;
     using System.Diagnostics;
     using System.Text;
-    using System.DirectoryServices;
+    //using System.DirectoryServices;
     using System.ComponentModel;
     using System.Globalization;
     using System.Threading;    
@@ -66,6 +66,7 @@ namespace System.Web.Services.Discovery {
         // Look in virtual subdirectories.
         protected override void SearchSubDirectories(string nameAdsiDir) {
 
+            /*
             if ( CompModSwitches.DynamicDiscoverySearcher.TraceVerbose ) Debug.WriteLine( "DynamicVirtualDiscoSearcher.SearchSubDirectories(): nameAdsiDir=" + nameAdsiDir);
 
             DirectoryEntry vdir = (DirectoryEntry)Adsi[nameAdsiDir];    //may be already bound
@@ -89,11 +90,14 @@ namespace System.Web.Services.Discovery {
                     ScanDirectory(child.Path);                      //go down ADSI path
                 }
             }
+            */
+            throw new NotSupportedException();
 
         }
 
         // -------------------------------------------------------------------------------
         protected override DirectoryInfo GetPhysicalDir(string dir ) {
+            /*
             DirectoryEntry vdir = (DirectoryEntry)Adsi[dir];
             if (vdir == null) {
                 if (!DirectoryEntry.Exists(dir) ) {
@@ -136,12 +140,15 @@ namespace System.Web.Services.Discovery {
                 return null;
             }
             return null;
+            */
+            throw new NotSupportedException();
         }
 
 
         // -------------------------------------------------------------------------------
         // Calculate root ADSI virtual directory name (func by 'Microsoft').
         private string GetWebServerForUrl(string url) {
+            /*
             Uri uri = new Uri(url);
             DirectoryEntry w3Service = new DirectoryEntry("IIS://" + uri.Host + "/W3SVC");
 
@@ -181,6 +188,8 @@ namespace System.Web.Services.Discovery {
                 }
             }
             return null;
+            */
+            throw new NotSupportedException();
         }
 
         // -------------------------------------------------------------------------------
@@ -202,7 +211,7 @@ namespace System.Web.Services.Discovery {
         protected override bool IsVirtualSearch {
             get { return true; }
         }
-
+/*
         private AppSettings GetAppSettings(DirectoryEntry entry) {
             string key = entry.Path;                   //this is fast since does not cause bind()
             AppSettings result = null;
@@ -224,6 +233,7 @@ namespace System.Web.Services.Discovery {
             }
             return result.AccessRead ? result : null;         //ignore denied object on upper level
         }
+*/
 
         private void CleanupCache() {
             //Destroy system resources excplicitly since the destructor is called sometime late
@@ -239,6 +249,7 @@ namespace System.Web.Services.Discovery {
             webApps = null;
         }
 
+/*
         private class AppSettings {
             internal readonly bool AccessRead = false; // if false the caller will ignore the object
             internal readonly string[] Bindings = null;  // the field is only for WebServers
@@ -270,6 +281,7 @@ namespace System.Web.Services.Discovery {
                 }
             }
         }
+*/
 
     }
 }

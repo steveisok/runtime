@@ -15,7 +15,7 @@ namespace System.Web.Services.Description {
     using System.Collections;
     using System;
     using System.Data;
-    //using System.Data.Design;
+    using System.Data.Design;
     using System.Reflection;
     using System.CodeDom;
     using System.CodeDom.Compiler;

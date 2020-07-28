@@ -53,8 +53,8 @@ namespace System.Web.Services.Protocols {
         }
 
         /// <include file='doc\SoapHeader.uex' path='docs/doc[@for="SoapHeader.EncodedMustUnderstand12"]/*' />
-        [XmlAttribute("mustUnderstand", Namespace = Soap12.Namespace),
-        SoapAttribute("mustUnderstand", Namespace = Soap12.Namespace),
+        [XmlAttribute("mustUnderstand", Namespace = System.Web.Services.Soap12.Namespace),
+        SoapAttribute("mustUnderstand", Namespace = System.Web.Services.Soap12.Namespace),
         DefaultValue("0"),
         ComVisible(false)]
         public string EncodedMustUnderstand12 {
@@ -92,8 +92,8 @@ namespace System.Web.Services.Protocols {
         }
 
         /// <include file='doc\SoapHeader.uex' path='docs/doc[@for="SoapHeader.Role"]/*' />
-        [XmlAttribute("role", Namespace = Soap12.Namespace),
-        SoapAttribute("role", Namespace = Soap12.Namespace),
+        [XmlAttribute("role", Namespace = System.Web.Services.Soap12.Namespace),
+        SoapAttribute("role", Namespace = System.Web.Services.Soap12.Namespace),
         DefaultValue(""),
         ComVisible(false)]
         public string Role {
@@ -117,8 +117,8 @@ namespace System.Web.Services.Protocols {
         }
 
         /// <include file='doc\SoapHeader.uex' path='docs/doc[@for="SoapHeader.EncodedRelay"]/*' />
-        [XmlAttribute("relay", Namespace = Soap12.Namespace),
-        SoapAttribute("relay", Namespace = Soap12.Namespace),
+        [XmlAttribute("relay", Namespace = System.Web.Services.Soap12.Namespace),
+        SoapAttribute("relay", Namespace = System.Web.Services.Soap12.Namespace),
         DefaultValue("0"),
         ComVisible(false)]
         public string EncodedRelay {

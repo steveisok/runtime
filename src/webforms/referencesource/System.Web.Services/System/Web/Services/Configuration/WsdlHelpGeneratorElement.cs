@@ -61,9 +61,9 @@ namespace System.Web.Services.Configuration
             get { return this.properties; }
         }
 
-        protected override void DeserializeElement(XmlReader reader, bool serializeCollectionKey)
+        protected internal override void DeserializeElement(XmlReader reader, bool serializeCollectionKey)
         {
-            PartialTrustHelpers.FailIfInPartialTrustOutsideAspNet();
+            //artialTrustHelpers.FailIfInPartialTrustOutsideAspNet();
 
             base.DeserializeElement(reader, serializeCollectionKey);
             
