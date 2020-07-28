@@ -1,0 +1,249 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>System.Web.Services</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TargetFrameworks>$(NetCoreAppCurrent)-Windows_NT;$(NetCoreAppCurrent)</TargetFrameworks>
+    <DefineConstants>$(DefineConstants);MONO_BROKEN_CONFIGURATION_DLL;FEATURE_PAL</DefineConstants>
+    <RefSrcPath>..\..\..\webforms\referencesource\</RefSrcPath>
+  </PropertyGroup>
+
+  <!--<ItemGroup>
+    <PackageReference Include="System.CodeDom" Version="5.0.0-preview.5.20278.1" />
+  </ItemGroup>-->
+  <ItemGroup>
+      <Compile Include="System/LocalAppContextSwitches.cs" />
+      <!--
+      <Compile Include="src/System/Xml/Res.cs" />
+      <Compile Include="../referencesource/System.Xml/System/Xml/Serialization/XmlCodeExporter.cs" />
+      <Compile Include="../referencesource/System.Xml/System/Xml/Serialization/CodeExporter.cs" />
+      <Compile Include="../referencesource/System.Xml/System/Xml/Serialization/Types.cs" />
+      <Compile Include="../referencesource/System.Xml/System/Xml/Serialization/Mappings.cs" />
+      <Compile Include="../referencesource/System.Xml/System/Xml/Serialization/NameTable.cs" />
+      <Compile Include="../referencesource/System.Xml/System/Xml/Serialization/Models.cs" />
+      <Compile Include="../referencesource/System.Xml/System/Xml/XmlReservedNs.cs" />
+      <Compile Include="$(RefSrcPath)System.Xml\System\Xml\Serialization\Advanced\SchemaImporterExtension.cs" />
+      -->
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="System.Reflection.Emit" />
+    <Reference Include="System.Reflection.Emit.ILGeneration" />
+    <Reference Include="System.Reflection.Emit.Lightweight" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="System.Collections" />
+    <Reference Include="System.Collections.Concurrent" />
+    <Reference Include="System.Collections.NonGeneric" />
+    <Reference Include="System.Collections.Specialized" />
+    <Reference Include="System.Console" />
+    <Reference Include="System.Diagnostics.TraceSource" />
+    <Reference Include="System.Diagnostics.Tracing" />
+    <Reference Include="System.IO.FileSystem" />
+    <Reference Include="System.Linq" />
+    <Reference Include="System.Linq.Expressions" />
+    <Reference Include="System.Memory" />
+    <Reference Include="System.Net.Http" />
+    <Reference Include="System.Net.Primitives" />
+    <Reference Include="System.ObjectModel" />
+    <Reference Include="System.Reflection.Primitives" />
+    <Reference Include="System.Runtime" />
+    <Reference Include="System.Runtime.Extensions" />
+    <Reference Include="System.Runtime.InteropServices" />
+    <Reference Include="System.Security.Cryptography.Algorithms" />
+    <Reference Include="System.Text.Encoding.Extensions" />
+    <Reference Include="System.Text.RegularExpressions" />
+    <Reference Include="System.Threading" />
+    <Reference Include="System.Threading.Thread" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="System.WebForms">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>../../../webforms/external/System.WebForms.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../System.Private.Xml/src/System.Private.Xml.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(LibrariesProjectRoot)System.CodeDom\src\System.CodeDom.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Configuration.ConfigurationManager\src\System.Configuration.ConfigurationManager.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Data.Common\src\System.Data.Common.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+      <!--<Compile Include="..\build\common\Consts.cs" />-->
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\ComponentModel\CompModSwitches.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Configuration\DiagnosticsElement.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Configuration\PriorityGroup.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Configuration\ProtocolElement.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Configuration\ProtocolElementCollection.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Configuration\Protocols.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Configuration\SoapEnvelopeProcessingElement.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Configuration\SoapExtensionTypeElement.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Configuration\SoapExtensionTypeElementCollection.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Configuration\TypeElement.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Configuration\TypeElementCollection.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Configuration\WebServicesSection.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Configuration\WsdlHelpGeneratorElement.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Configuration\WsiProfilesElement.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Configuration\WsiProfilesElementCollection.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Configuration\XmlFormatExtensionAttribute.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Configuration\XmlFormatExtensionPointAttribute.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Configuration\XmlFormatExtensionPrefixAttribute.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\HttpFormatExtensions.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\HttpGetProtocolImporter.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\HttpGetProtocolReflector.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\HttpPostProtocolImporter.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\HttpPostProtocolReflector.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\HttpProtocolImporter.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\HttpProtocolReflector.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\MimeAnyImporter.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\MimeFormImporter.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\MimeFormReflector.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\MimeFormatExtensions.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\MimeImporter.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\MimeParameter.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\MimeParameters.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\MimeReflector.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\MimeReturn.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\MimeTextImporter.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\MimeXmlImporter.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\MimeXmlReflector.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\ProtocolImporter.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\ProtocolReflector.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\SchemaCompiler.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\ServiceDescription.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\ServiceDescriptionImporter.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\ServiceDescriptionReflector.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\ServiceDescriptionSerializer.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\ServiceDescriptions.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\Soap12FormatExtensions.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\Soap12ProtocolImporter.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\Soap12ProtocolReflector.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\SoapExtensionImporter.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\SoapExtensionReflector.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\SoapFormatExtensions.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\SoapHttpTransportImporter.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\SoapProtocolImporter.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\SoapProtocolReflector.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\SoapTransportImporter.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\WebCodeGenerator.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\WebReference.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\WebReferenceCollection.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\WebReferenceOptions.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Description\WebServicesInteroperability.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Diagnostics\TraceUtility.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Discovery\ContractReference.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Discovery\ContractSearchPattern.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Discovery\DiscoveryClientDocuments.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Discovery\DiscoveryClientProtocol.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Discovery\DiscoveryClientReferences.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Discovery\DiscoveryDocument.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Discovery\DiscoveryDocumentLinksPattern.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Discovery\DiscoveryDocumentReference.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Discovery\DiscoveryDocumentSearchPattern.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Discovery\DiscoveryDocumentSerializer.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Discovery\DiscoveryExceptionDictionary.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Discovery\DiscoveryReference.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Discovery\DiscoveryReferences.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Discovery\DiscoveryRequestHandler.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Discovery\DiscoverySearchPattern.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Discovery\DynamicDiscoSearcher.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Discovery\DynamicDiscoveryDocument.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Discovery\DynamicPhysicalDiscoSearcher.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Discovery\DynamicVirtualDiscoSearcher.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Discovery\ExcludePathInfo.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Discovery\InvalidContentTypeException.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Discovery\InvalidDocumentContentsException.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Discovery\LinkGrep.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Discovery\SchemaReference.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Discovery\SoapBinding.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Discovery\XmlSchemaSearchPattern.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Interop\CallId.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Interop\INotifyConnection2.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Interop\INotifySink2.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Interop\INotifySource2.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Interop\NotifyFilter.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Interop\UserThread.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\NativeMethods.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\PartialTrustHelpers.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\AnyReturnReader.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\BufferedResponseStream.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\ClientProtocol.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\DiscoveryServerProtocol.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\DocumentationServerProtocol.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\HtmlFormParameterReader.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\HtmlFormParameterWriter.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\HttpClientProtocol.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\HttpGetClientProtocol.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\HttpGetServerProtocol.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\HttpMethodAttribute.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\HttpPostClientProtocol.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\HttpPostLocalhostServerProtocol.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\HttpPostServerProtocol.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\HttpServerProtocol.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\LogicalMethodInfo.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\MatchAttribute.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\MimeFormatter.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\MimeParameterReader.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\MimeParameterWriter.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\MimeReturnReader.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\MimeReturnWriter.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\NopReturnReader.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\PatternMatcher.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\RequestResponse.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\RuntimeUtils.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\Scalars.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\ScatterGatherStream.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\ServerProtocol.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\ServerType.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\Soap11ServerProtocol.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\Soap12ServerProtocol.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\SoapClientMessage.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\SoapClientProtocol.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\SoapDocumentMethodAttribute.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\SoapDocumentServiceAttribute.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\SoapException.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\SoapExtension.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\SoapExtensionAttribute.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\SoapExtensionStream.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\SoapFaultCodes.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\SoapHeader.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\SoapHeaderAttribute.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\SoapHeaderDirection.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\SoapHeaderException.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\SoapHeaders.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\SoapMessage.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\SoapMessageStage.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\SoapParameterStyle.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\SoapProtocolVersion.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\SoapReflector.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\SoapRpcMethodAttribute.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\SoapRpcServiceAttribute.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\SoapServerMessage.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\SoapServerMethod.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\SoapServerProtocol.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\SoapServiceRoutingStyle.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\SoapUnknownHeader.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\TextReturnReader.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\UrlEncodedParameterWriter.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\UrlParameterReader.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\UrlParameterWriter.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\ValueCollectionParameterReader.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\WebServiceHandler.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\WebServiceHandlerFactory.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\XmlReturnReader.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Protocols\XmlReturnWriter.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Soap.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\WebMethodAttribute.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\WebService.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\WebServiceAttribute.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\WebServiceBindingAttribute.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\WebServicesDescriptionAttribute.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\WsiProfiles.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\inc\InvariantComparer.cs" />
+      <Compile Include="$(RefSrcPath)System.Web.Services\inc\PrivilegedConfigurationManager.cs" />
+      <Compile Include="corefx\SR.Helpers.cs" />
+      <Compile Include="corefx\SR.cs" />
+    </ItemGroup>
+</Project>
