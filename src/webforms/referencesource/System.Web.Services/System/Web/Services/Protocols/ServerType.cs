@@ -15,8 +15,6 @@ namespace System.Web.Services.Protocols {
     using System.Security;
     using System.Security.Permissions;
 
-    [PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
-    [PermissionSet(SecurityAction.InheritanceDemand, Name  = "FullTrust")]
     public class ServerType {
         Type type;
 

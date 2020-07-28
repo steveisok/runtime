@@ -102,8 +102,6 @@ namespace System.Web.Services.Description {
     /// <devdoc>
     ///    <para>[To be supplied.]</para>
     /// </devdoc>
-    [PermissionSet(SecurityAction.InheritanceDemand, Name = "FullTrust")]
-    [PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
     public class ServiceDescriptionImporter {
         ServiceDescriptionImportStyle style = ServiceDescriptionImportStyle.Client;
         ServiceDescriptionCollection serviceDescriptions = new ServiceDescriptionCollection();

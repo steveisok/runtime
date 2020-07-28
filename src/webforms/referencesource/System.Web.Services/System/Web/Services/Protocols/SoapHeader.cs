@@ -75,9 +75,7 @@ namespace System.Web.Services.Protocols {
         }
 
         internal virtual bool InternalMustUnderstand {
-            [PermissionSet(SecurityAction.InheritanceDemand, Name = "FullTrust")]
             get { return mustUnderstand; }
-            [PermissionSet(SecurityAction.InheritanceDemand, Name = "FullTrust")]
             set { mustUnderstand = value; }
         }
 
@@ -104,9 +102,7 @@ namespace System.Web.Services.Protocols {
         }
 
         internal virtual string InternalActor {
-            [PermissionSet(SecurityAction.InheritanceDemand, Name = "FullTrust")]
             get { return actor == null ? string.Empty : actor; }
-            [PermissionSet(SecurityAction.InheritanceDemand, Name = "FullTrust")]
             set { actor = value; }
         }
 
@@ -146,14 +142,11 @@ namespace System.Web.Services.Protocols {
         }
 
         internal virtual bool InternalRelay {
-            [PermissionSet(SecurityAction.InheritanceDemand, Name = "FullTrust")]
             get { return relay; }
-            [PermissionSet(SecurityAction.InheritanceDemand, Name = "FullTrust")]
             set { relay = value; }
         }
     }
 
-    [PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
     public sealed class SoapHeaderMapping {
         //
         // Block external construction
@@ -198,7 +191,6 @@ namespace System.Web.Services.Protocols {
         }
     }
 
-    [PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
     public sealed class SoapHeaderHandling {
         SoapHeaderCollection unknownHeaders;
         SoapHeaderCollection unreferencedHeaders;

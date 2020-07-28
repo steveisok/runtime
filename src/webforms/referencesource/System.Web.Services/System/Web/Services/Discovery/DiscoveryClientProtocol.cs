@@ -99,7 +99,6 @@ namespace System.Web.Services.Discovery {
         /// <devdoc>
         ///    <para>[To be supplied.]</para>
         /// </devdoc>
-        [PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
         public DiscoveryDocument Discover(string url) {
             DiscoveryDocument doc = Documents[url] as DiscoveryDocument;
             if (doc != null)
@@ -118,7 +117,6 @@ namespace System.Web.Services.Discovery {
         /// <devdoc>
         ///    <para>[To be supplied.]</para>
         /// </devdoc>
-        [PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
         public DiscoveryDocument DiscoverAny(string url) {
             Type[] refTypes = WebServicesSection.Current.DiscoveryReferenceTypes;
             DiscoveryReference discoRef = null;
@@ -218,7 +216,6 @@ namespace System.Web.Services.Discovery {
         /// <devdoc>
         ///    <para>[To be supplied.]</para>
         /// </devdoc>
-        [PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
         public Stream Download(ref string url) {
             string contentType = null;
             return Download(ref url, ref contentType);
@@ -228,7 +225,6 @@ namespace System.Web.Services.Discovery {
         /// <devdoc>
         ///    <para>[To be supplied.]</para>
         /// </devdoc>
-        [PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
         public Stream Download(ref string url, ref string contentType) {
             WebRequest request = GetWebRequest(new Uri(url));
             request.Method = "GET";
@@ -331,7 +327,6 @@ namespace System.Web.Services.Discovery {
         /// <devdoc>
         ///    <para>[To be supplied.]</para>
         /// </devdoc>
-        [PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
         public DiscoveryClientResultCollection ReadAll(string topLevelFilename) {
             XmlSerializer ser = new XmlSerializer(typeof(DiscoveryClientResultsFile));
             Stream file = File.OpenRead(topLevelFilename);
@@ -378,7 +373,6 @@ namespace System.Web.Services.Discovery {
         /// <devdoc>
         ///    <para>[To be supplied.]</para>
         /// </devdoc>
-        [PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
         public void ResolveAll() {
             // Resolve until we reach a 'steady state' (no more references added)
             Errors.Clear();
@@ -425,7 +419,6 @@ namespace System.Web.Services.Discovery {
         /// <devdoc>
         ///    <para>[To be supplied.]</para>
         /// </devdoc>
-        [PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
         public void ResolveOneLevel() {
             // download everything we have a reference to, but don't recurse.
             Errors.Clear();
@@ -472,7 +465,6 @@ namespace System.Web.Services.Discovery {
         /// <devdoc>
         ///    <para>[To be supplied.]</para>
         /// </devdoc>
-        [PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
         public DiscoveryClientResultCollection WriteAll(string directory, string topLevelFilename) {
             DiscoveryClientResultsFile results = new DiscoveryClientResultsFile();
             Hashtable filenames = new Hashtable();

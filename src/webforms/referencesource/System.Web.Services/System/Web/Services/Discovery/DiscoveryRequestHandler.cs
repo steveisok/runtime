@@ -40,7 +40,6 @@ namespace System.Web.Services.Discovery {
             TraceMethod method = Tracing.On ? new TraceMethod(this, "ProcessRequest") : null;
             if (Tracing.On) Tracing.Enter("IHttpHandler.ProcessRequest", method, Tracing.Details(context.Request));
 
-            new PermissionSet(PermissionState.Unrestricted).Demand();
             // string cacheKey;
 
             string physicalPath = context.Request.PhysicalPath;

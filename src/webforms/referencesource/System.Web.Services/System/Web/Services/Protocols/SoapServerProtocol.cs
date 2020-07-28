@@ -22,7 +22,6 @@ namespace System.Web.Services.Protocols {
     using System.Security.Permissions;
     using System.Web.Services.Diagnostics;
 
-    [PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
     public sealed class SoapServerType : ServerType {
         Hashtable methods = new Hashtable();
         Hashtable duplicateMethods = new Hashtable();
@@ -201,8 +200,6 @@ namespace System.Web.Services.Protocols {
         }
     }
 
-    [PermissionSet(SecurityAction.InheritanceDemand, Name = "FullTrust")]
-    [PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
     public class SoapServerProtocolFactory : ServerProtocolFactory {
         // POST requests without pathinfo (the "/Foo" in "foo.asmx/Foo") 
         // are treated as soap. if the server supports both versions we route requests
@@ -221,8 +218,6 @@ namespace System.Web.Services.Protocols {
         }
     }
 
-    [PermissionSet(SecurityAction.InheritanceDemand, Name = "FullTrust")]
-    [PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
     public class SoapServerProtocol : ServerProtocol {
         SoapServerType serverType;
         SoapServerMethod serverMethod;
@@ -247,7 +242,6 @@ namespace System.Web.Services.Protocols {
         ///       Allows to intercept XmlWriter creation.
         ///    </para>
         /// </devdoc>
-        [PermissionSet(SecurityAction.LinkDemand | SecurityAction.InheritanceDemand, Name = "FullTrust")]
         protected virtual XmlWriter GetWriterForMessage(SoapServerMessage message, int bufferSize) {
             if (bufferSize < 512)
                 bufferSize = 512;
@@ -267,7 +261,6 @@ namespace System.Web.Services.Protocols {
         ///       Allows to intercept XmlReader creation.
         ///    </para>
         /// </devdoc>
-        [PermissionSet(SecurityAction.LinkDemand | SecurityAction.InheritanceDemand, Name = "FullTrust")]
         protected virtual XmlReader GetReaderForMessage(SoapServerMessage message, int bufferSize) {
             Encoding enc = RequestResponseUtils.GetEncoding2(message.ContentType);
             if (bufferSize < 512)

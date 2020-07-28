@@ -18,7 +18,6 @@ namespace System.Web.Services.Protocols {
     /// <devdoc>
     ///    <para>[To be supplied.]</para>
     /// </devdoc>
-    [PermissionSet(SecurityAction.InheritanceDemand, Name = "FullTrust")]
     public class SoapHeaderCollection : CollectionBase {
         
         /// <include file='doc\SoapHeaders.uex' path='docs/doc[@for="SoapHeaderCollection.this"]/*' />

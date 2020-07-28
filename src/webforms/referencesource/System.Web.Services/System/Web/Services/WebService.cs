@@ -32,9 +32,7 @@ namespace System.Web.Services {
         ///    <para>Gets a
         ///       reference to the application object for the current HTTP request.</para>
         /// </devdoc>
-        [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden), Description("The ASP.NET application object for the current request.")]
         public HttpApplicationState Application {
-            [AspNetHostingPermission(SecurityAction.LinkDemand, Level = AspNetHostingPermissionLevel.Minimal)]
             get {
                 return Context.Application;
             }
@@ -46,9 +44,7 @@ namespace System.Web.Services {
         ///       which encapsulates all HTTP-specific context
         ///       used by the HTTP server to process Web requests.</para>
         /// </devdoc>
-        [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden), WebServicesDescription(Res.WebServiceContext)]
         public HttpContext Context {
-            [AspNetHostingPermission(SecurityAction.LinkDemand, Level = AspNetHostingPermissionLevel.Minimal)]
             get {
                 PartialTrustHelpers.FailIfInPartialTrustOutsideAspNet();
                 if (context == null)
@@ -64,9 +60,7 @@ namespace System.Web.Services {
         /// <para>Gets a reference to the <see cref='T:System.Web.HttpSessionState'/>
         /// instance for the current request.</para>
         /// </devdoc>
-        [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden), WebServicesDescription(Res.WebServiceSession)]
         public HttpSessionState Session {
-            [AspNetHostingPermission(SecurityAction.LinkDemand, Level = AspNetHostingPermissionLevel.Minimal)]
             get {
                 return Context.Session;
             }
@@ -77,9 +71,7 @@ namespace System.Web.Services {
         /// <para>Gets a reference to the <see cref='T:System.Web.HttpServerUtility'/>
         /// for the current request.</para>
         /// </devdoc>
-        [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden), WebServicesDescription(Res.WebServiceServer)]
         public HttpServerUtility Server {
-            [AspNetHostingPermission(SecurityAction.LinkDemand, Level = AspNetHostingPermissionLevel.Minimal)]
             get {
                 return Context.Server;
             }
@@ -89,18 +81,14 @@ namespace System.Web.Services {
         /// <devdoc>
         ///    <para>Gets the ASP.NET server User object, used for authorizing the request.</para>
         /// </devdoc>
-        [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden), WebServicesDescription(Res.WebServiceUser)]
         public IPrincipal User {
-            [AspNetHostingPermission(SecurityAction.LinkDemand, Level = AspNetHostingPermissionLevel.Minimal)]
             get {
                 return Context.User;
             }
         }
 
         /// <include file='doc\WebService.uex' path='docs/doc[@for="WebService.SoapVersion"]/*' />
-        [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden), WebServicesDescription(Res.WebServiceSoapVersion), ComVisible(false)]
         public SoapProtocolVersion SoapVersion {
-            [AspNetHostingPermission(SecurityAction.LinkDemand, Level = AspNetHostingPermissionLevel.Minimal)]
             get {
                 object o = Context.Items[SoapVersionContextSlot];
                 if (o != null && o is SoapProtocolVersion)

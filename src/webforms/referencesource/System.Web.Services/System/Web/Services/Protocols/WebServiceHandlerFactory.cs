@@ -22,7 +22,6 @@ namespace System.Web.Services.Protocols {
     /// <devdoc>
     ///    <para>[To be supplied.]</para>
     /// </devdoc>
-    [PermissionSet(SecurityAction.InheritanceDemand, Name = "FullTrust")]
     public class WebServiceHandlerFactory : IHttpHandlerFactory {
         /*
         static WebServiceHandlerFactory() {            
@@ -63,7 +62,6 @@ namespace System.Web.Services.Protocols {
             TraceMethod method = Tracing.On ? new TraceMethod(this, "GetHandler") : null;
             if (Tracing.On) Tracing.Enter("IHttpHandlerFactory.GetHandler", method, Tracing.Details(context.Request));
 
-            new AspNetHostingPermission(AspNetHostingPermissionLevel.Minimal).Demand();
             //if (CompModSwitches.Remote.TraceVerbose) DumpRequest(context);
             //System.Diagnostics.Debugger.Break();
 #if DEBUG
@@ -81,7 +79,6 @@ namespace System.Web.Services.Protocols {
         // Asserts security permission. 
         // Reason: System.Web.UI.WebServiceParser.GetCompiledType() demands SecurityPermission.
         // Justification: The type returned is only used to get the IHttpHandler.
-        [SecurityPermission(SecurityAction.Assert, Unrestricted = true)]
         private Type GetCompiledType(string url, HttpContext context)
         {
             return WebServiceParser.GetCompiledType(url, context);
@@ -145,7 +142,6 @@ namespace System.Web.Services.Protocols {
 
         // Asserts FullTrust permission.
         // Justification: FullTrust is used only to create the objects of type SoapServerProtocolFactory and for nothing else.
-        [PermissionSet(SecurityAction.Assert, Name = "FullTrust")]
         private ServerProtocolFactory[] GetServerProtocolFactories()
         {
             return WebServicesSection.Current.ServerProtocolFactories;

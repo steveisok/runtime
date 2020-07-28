@@ -11,9 +11,6 @@ namespace System.Web.Services {
     using System.Web.Services.Interop;
     using System.Security;    
 
-    [ComVisible(false), SuppressUnmanagedCodeSecurity,
-    SecurityPermission(SecurityAction.LinkDemand, Flags = SecurityPermissionFlag.UnmanagedCode)]
-
     internal class UnsafeNativeMethods {
         private UnsafeNativeMethods() { }
 

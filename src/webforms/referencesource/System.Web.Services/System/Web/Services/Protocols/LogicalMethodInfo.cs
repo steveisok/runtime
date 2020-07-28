@@ -130,7 +130,6 @@ namespace System.Web.Services.Protocols {
         /// <devdoc>
         ///    <para>[To be supplied.]</para>
         /// </devdoc>
-        [PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
         public object[] Invoke(object target, object[] values) {
             if (outParams.Length > 0) {
                 object[] newValues = new object[parameters.Length];
@@ -163,7 +162,6 @@ namespace System.Web.Services.Protocols {
         /// <devdoc>
         ///    <para>[To be supplied.]</para>
         /// </devdoc>
-        [PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
         public IAsyncResult BeginInvoke(object target, object[] values, AsyncCallback callback, object asyncState) {
             object[] asyncValues = new object[values.Length + 2];
             values.CopyTo(asyncValues, 0);
@@ -176,7 +174,6 @@ namespace System.Web.Services.Protocols {
         /// <devdoc>
         ///    <para>[To be supplied.]</para>
         /// </devdoc>
-        [PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
         public object[] EndInvoke(object target, IAsyncResult asyncResult) {
             object[] values = new object[outParams.Length + 1];
             values[0] = asyncResult;

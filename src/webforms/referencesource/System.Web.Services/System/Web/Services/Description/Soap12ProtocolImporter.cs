@@ -22,7 +22,6 @@ namespace System.Web.Services.Description {
     using System.Globalization;
     
     /// <include file='doc\Soap12ProtocolImporter.uex' path='docs/doc[@for="Soap12ProtocolImporter"]/*' />
-    [PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
     internal class Soap12ProtocolImporter : SoapProtocolImporter {
 
         public override string ProtocolName {

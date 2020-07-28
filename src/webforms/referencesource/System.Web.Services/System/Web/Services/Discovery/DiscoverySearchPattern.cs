@@ -12,7 +12,6 @@ namespace System.Web.Services.Discovery {
     /// <devdoc>
     ///    <para>[To be supplied.]</para>
     /// </devdoc>
-    [PermissionSet(SecurityAction.InheritanceDemand, Name = "FullTrust")]
     public abstract class DiscoverySearchPattern {
         /// <include file='doc\DiscoverySearchPattern.uex' path='docs/doc[@for="DiscoverySearchPattern.Pattern"]/*' />
         /// <devdoc>

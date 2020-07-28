@@ -73,7 +73,6 @@ namespace System.Web.Services.Configuration {
             }
         }
 
-        [ConfigurationPermission(SecurityAction.Assert, Unrestricted = true)]
         [MethodImplAttribute(MethodImplOptions.NoInlining)]
         static WebServicesSection GetConfigFromHttpContext() {
             PartialTrustHelpers.FailIfInPartialTrustOutsideAspNet();
@@ -154,7 +153,6 @@ namespace System.Web.Services.Configuration {
             return (XmlFormatExtensionPointAttribute)attrs[0];
         }
 
-        [ConfigurationPermission(SecurityAction.Assert, Unrestricted = true)]
         static public WebServicesSection GetSection(Configuration config) {
             if (config == null) {
                 throw new ArgumentNullException("config");

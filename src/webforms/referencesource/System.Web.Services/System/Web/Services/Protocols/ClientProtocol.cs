@@ -493,12 +493,10 @@ namespace System.Web.Services.Protocols {
         ///     does nothing.
         ///    </para>
         /// </devdoc>
-        [PermissionSet(SecurityAction.InheritanceDemand, Name = "FullTrust")]
         internal virtual void InitializeAsyncRequest(WebRequest request, object internalAsyncState) {
             return;
         }
 
-        [PermissionSet(SecurityAction.InheritanceDemand, Name = "FullTrust")]
         internal virtual void AsyncBufferedSerialize(WebRequest request, Stream requestStream, object internalAsyncState) {
             throw new NotSupportedException(Res.GetString(Res.ProtocolDoesNotAsyncSerialize));
         }
@@ -537,7 +535,6 @@ namespace System.Web.Services.Protocols {
     }
 
     /// <include file='doc\ClientProtocol.uex' path='docs/doc[@for="WebClientAsyncResult"]/*' />
-    [PermissionSet(SecurityAction.InheritanceDemand, Name = "FullTrust")]
     public class WebClientAsyncResult : IAsyncResult {
         private object userAsyncState;
         private bool completedSynchronously;
@@ -783,7 +780,6 @@ namespace System.Web.Services.Protocols {
         }
 
         /// <include file='doc\ClientProtocol.uex' path='docs/doc[@for="HttpWebClientProtocol.ClientCertificates"]/*' />
-        [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden), WebServicesDescription(Res.ClientProtocolClientCertificates)]
         public X509CertificateCollection ClientCertificates {
             get {
                 if (clientCertificates == null) {
@@ -817,7 +813,6 @@ namespace System.Web.Services.Protocols {
          ///       sent with each request.
          ///    </para>
          /// </devdoc>
-        [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden), WebServicesDescription(Res.ClientProtocolUserAgent)]
         public string UserAgent {
             get { return (userAgent == null) ? string.Empty : userAgent; }
             set { userAgent = value; }
@@ -829,7 +824,6 @@ namespace System.Web.Services.Protocols {
         ///       Gets or sets the name of the proxy server to use for requests.
         ///    </para>
         /// </devdoc>
-        [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public IWebProxy Proxy {
             get { return proxy; }
             set { proxy = value; }
@@ -883,7 +877,6 @@ namespace System.Web.Services.Protocols {
         }
 
         /// <include file='doc\ClientProtocol.uex' path='docs/doc[@for="HttpWebClientProtocol.UnsafeAuthenticatedConnectionSharing"]/*' />
-        [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public bool UnsafeAuthenticatedConnectionSharing {
             get { return unsafeAuthenticatedConnectionSharing; }
             set { unsafeAuthenticatedConnectionSharing = value; }

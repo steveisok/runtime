@@ -20,8 +20,6 @@ namespace System.Web.Services.Protocols {
     using System.Security.Permissions;
     using System.Web.Services.Diagnostics;
 
-    [PermissionSet(SecurityAction.InheritanceDemand, Name = "FullTrust")]
-    [PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
     public abstract class ServerProtocol {
         Type type;
         HttpRequest request;
@@ -258,7 +256,7 @@ namespace System.Web.Services.Protocols {
         //    since the DOS attack cannot be generically fixed without breaking behavioral changes. The value of 10 is baked in, 
         //    and we consider it a reasonable default based on the assumption that ASMX services in most circumstances cannot be 
         //    reached using more than 10 different values of the scheme/host/port. 
-        // 2. For any requests for WSDL going beyond the 10 limit of scheme/host/port combination, we go into a “DOS mitigation mode”. 
+        // 2. For any requests for WSDL going beyond the 10 limit of scheme/host/port combination, we go into a ï¿½DOS mitigation modeï¿½. 
         //    The mode prevents the eventual process crash while introducing marginal breaking behavioral changes:
         //    a. We create a single service description and cache it using the AbsolutePath of the request URI alone 
         //       (as opposed to scheme/host/port + AbsolutePath).
@@ -298,8 +296,6 @@ namespace System.Web.Services.Protocols {
         }
     }
 
-    [PermissionSet(SecurityAction.InheritanceDemand, Name = "FullTrust")]
-    [PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
     public abstract class ServerProtocolFactory {
         internal ServerProtocol Create(Type type, HttpContext context, HttpRequest request, HttpResponse response, out bool abortProcessing) {
             ServerProtocol serverProtocol = null;

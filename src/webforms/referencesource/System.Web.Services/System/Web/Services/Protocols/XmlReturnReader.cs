@@ -82,7 +82,6 @@ namespace System.Web.Services.Protocols {
         // Asserts full-trust permission-set.
         // Reason: Assembly.Evidence demands SecurityPermission and/or other permissions.
         // Justification: The type returned is only used to get the GetInitializers method.
-        [PermissionSet(SecurityAction.Assert, Unrestricted = true)]
         static Evidence GetEvidenceForType(Type type)
         {
             return type.Assembly.Evidence;

@@ -17,7 +17,6 @@ namespace System.Web.Services.Protocols {
     using System.Security.Policy;
     using System.Web.Services.Diagnostics;
 
-    [PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
     public sealed class SoapServerMethod {
         //
         // Internal field visibility is maintained for
@@ -181,7 +180,6 @@ namespace System.Web.Services.Protocols {
             }
         }
 
-        [SecurityPermission(SecurityAction.Assert, ControlEvidence = true)]
         private Evidence GetServerTypeEvidence(Type type) {
             return type.Assembly.Evidence;
         }

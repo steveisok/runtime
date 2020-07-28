@@ -273,7 +273,6 @@ namespace System.Web.Services.Protocols {
                 subCode = subCode.SubCode;
         }
 
-        [SecurityPermissionAttribute(SecurityAction.LinkDemand, Flags = SecurityPermissionFlag.SerializationFormatter)]
         public override void GetObjectData(SerializationInfo info, StreamingContext context) {
             IDictionary list = Data;
             list["code"] = Code;

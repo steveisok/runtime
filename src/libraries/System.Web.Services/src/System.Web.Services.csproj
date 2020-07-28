@@ -72,6 +72,7 @@
   </ItemGroup>
   <ItemGroup>
       <!--<Compile Include="..\build\common\Consts.cs" />-->
+      <Compile Include="$(CommonPath)System\EnterpriseServices\TransactionOption.cs" />
       <Compile Include="$(RefSrcPath)System.Web.Services\System\ComponentModel\CompModSwitches.cs" />
       <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Configuration\DiagnosticsElement.cs" />
       <Compile Include="$(RefSrcPath)System.Web.Services\System\Web\Services\Configuration\PriorityGroup.cs" />

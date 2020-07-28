@@ -9,7 +9,6 @@ namespace System.Web.Services.Protocols {
     /// <devdoc>
     ///    <para>[To be supplied.]</para>
     /// </devdoc>
-    [PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
     public sealed class PatternMatcher {
         MatchType matchType;
 

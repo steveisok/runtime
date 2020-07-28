@@ -17,7 +17,6 @@ namespace System.Web.Services.Protocols {
     /// <devdoc>
     ///    <para>[To be supplied.]</para>
     /// </devdoc>
-    [PermissionSet(SecurityAction.InheritanceDemand, Name = "FullTrust")]
     public abstract class MimeParameterReader : MimeFormatter {
         /// <include file='doc\MimeParameterReader.uex' path='docs/doc[@for="MimeParameterReader.Read"]/*' />
         /// <devdoc>

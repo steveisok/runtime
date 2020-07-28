@@ -22,7 +22,6 @@ namespace System.Web.Services.Configuration
             this.properties.Add(this.href);
         }
 
-        [FileIOPermission(SecurityAction.Assert, Unrestricted = true)]
         string GetConfigurationDirectory()
         {
             PartialTrustHelpers.FailIfInPartialTrustOutsideAspNet();

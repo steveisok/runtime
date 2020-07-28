@@ -21,7 +21,6 @@ namespace System.Web.Services.Protocols {
     /// <devdoc>
     ///    <para>[To be supplied.]</para>
     /// </devdoc>
-    [PermissionSet(SecurityAction.InheritanceDemand, Name = "FullTrust")]
     public abstract class SoapMessage {
         SoapMessageStage stage;
         SoapHeaderCollection headers = new SoapHeaderCollection();

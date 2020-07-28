@@ -12,7 +12,6 @@ namespace System.Web.Services.Description {
     /// <devdoc>
     ///    <para>[To be supplied.]</para>
     /// </devdoc>
-    [PermissionSet(SecurityAction.InheritanceDemand, Name = "FullTrust")]
     public abstract class SoapTransportImporter {
         SoapProtocolImporter protocolImporter;
 

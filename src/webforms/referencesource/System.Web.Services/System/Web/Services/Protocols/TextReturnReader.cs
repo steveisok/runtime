@@ -7,7 +7,6 @@ namespace System.Web.Services.Protocols {
     using System.Security.Permissions;
 
     /// <include file='doc\TextReturnReader.uex' path='docs/doc[@for="TextReturnReader"]/*' />
-    [PermissionSet(SecurityAction.InheritanceDemand, Name = "FullTrust")]
     public class TextReturnReader : MimeReturnReader {
         PatternMatcher matcher;
 

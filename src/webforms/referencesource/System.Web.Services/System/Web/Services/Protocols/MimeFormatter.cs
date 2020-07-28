@@ -44,7 +44,6 @@ namespace System.Web.Services.Protocols {
         /// <devdoc>
         ///    <para>[To be supplied.]</para>
         /// </devdoc>
-        [PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
         public static object GetInitializer(Type type, LogicalMethodInfo methodInfo) {
             return ((MimeFormatter)Activator.CreateInstance(type)).GetInitializer(methodInfo);
         }
@@ -53,7 +52,6 @@ namespace System.Web.Services.Protocols {
         /// <devdoc>
         ///    <para>[To be supplied.]</para>
         /// </devdoc>
-        [PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
         public static object[] GetInitializers(Type type, LogicalMethodInfo[] methodInfos) {
             return ((MimeFormatter)Activator.CreateInstance(type)).GetInitializers(methodInfos);
         }
@@ -62,7 +60,6 @@ namespace System.Web.Services.Protocols {
         /// <devdoc>
         ///    <para>[To be supplied.]</para>
         /// </devdoc>
-        [PermissionSet(SecurityAction.LinkDemand, Name = "FullTrust")]
         public static MimeFormatter CreateInstance(Type type, object initializer) {
             MimeFormatter formatter = (MimeFormatter)Activator.CreateInstance(type);
             formatter.Initialize(initializer);

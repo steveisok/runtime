@@ -145,8 +145,6 @@ namespace System.Web.Services.Protocols {
         // It is used to initialize the IHttpHandler field of the DocumentationServerProtocol object.
         // FileIOPermission is required to access the inputFile passed in as a parameter.
         // It is used only to map the virtual path to the physical file path. The FileIOPermission is not used to access any file other than the one passed in.
-        [SecurityPermission(SecurityAction.Assert, Unrestricted = true)]
-        [FileIOPermissionAttribute(SecurityAction.Assert, Unrestricted = true)]
         private IHttpHandler GetCompiledPageInstance(string virtualPath, string inputFile, HttpContext context)
         {
             return PageParser.GetCompiledPageInstance(virtualPath, inputFile, context);

@@ -233,7 +233,6 @@ namespace System.Web.Services.Protocols {
         ///       Allows to intercept XmlWriter creation.
         ///    </para>
         /// </devdoc>
-        [PermissionSet(SecurityAction.LinkDemand | SecurityAction.InheritanceDemand, Name = "FullTrust")]
         protected virtual XmlWriter GetWriterForMessage(SoapClientMessage message, int bufferSize) {
             if (bufferSize < 512)
                 bufferSize = 512;
@@ -259,8 +258,6 @@ namespace System.Web.Services.Protocols {
         ///       Allows to intercept XmlReader creation.
         ///    </para>
         /// </devdoc>
-        
-        [PermissionSet(SecurityAction.LinkDemand | SecurityAction.InheritanceDemand, Name = "FullTrust")]
         protected virtual XmlReader GetReaderForMessage(SoapClientMessage message, int bufferSize) {
             Encoding enc = message.SoapVersion == SoapProtocolVersion.Soap12 ? RequestResponseUtils.GetEncoding2(message.ContentType) : RequestResponseUtils.GetEncoding(message.ContentType);
             if (bufferSize < 512)
