@@ -6,7 +6,7 @@
     <TargetFramework>$(NetCoreAppCurrent)</TargetFramework>
     <TargetArchitecture>wasm</TargetArchitecture>
     <TargetOS>Browser</TargetOS>
-    <MicrosoftNetCoreAppRuntimePackDir>$(ArtifactsBinDir)microsoft.netcore.app.runtime.browser-wasm\$(Configuration)\runtimes\browser-wasm\</MicrosoftNetCoreAppRuntimePackDir>
+    <MicrosoftNetCoreAppRuntimePackRidDir>$(ArtifactsBinDir)microsoft.netcore.app.runtime.browser-wasm\$(Configuration)\runtimes\browser-wasm\</MicrosoftNetCoreAppRuntimePackRidDir>
     <BuildDir>$(MSBuildThisFileDirectory)obj\$(Configuration)\wasm</BuildDir>
     <AppDir>$(MSBuildThisFileDirectory)bin\$(Configuration)\AppBundle\</AppDir>
     <PublishTrimmed>true</PublishTrimmed>
@@ -58,11 +58,21 @@
   <UsingTask TaskName="MonoAOTCompiler"
              AssemblyFile="$(ArtifactsBinDir)MonoAOTCompiler\Debug\$(NetCoreAppCurrent)\MonoAOTCompiler.dll" />
 
-  <Target Name="BuildApp" AfterTargets="CopyFilesToPublishDirectory" DependsOnTargets="RebuildWasmAppBuilder;Build">
+  <Target Name="PrepareBuildApp" AfterTargets="CopyFilesToPublishDirectory" DependsOnTargets="RebuildWasmAppBuilder;Build">
     <RemoveDir Directories="$(AppDir)" />
-
     <ItemGroup>
       <BundleAssemblies Condition="'$(RunAOTCompilation)' != 'true'" Include="$(MSBuildThisFileDirectory)$(PublishDir)\*.dll" />
+    </ItemGroup>
+    <PropertyGroup>
+      <EmccFlagsFile>$(MicrosoftNetCoreAppRuntimePackRidDir)native\src\emcc-flags.txt</EmccFlagsFile>
+      <RuntimeEmccVersionFile>$(MicrosoftNetCoreAppRuntimePackRidDir)native\src\emcc-version.txt</RuntimeEmccVersionFile>
+      <EmccPublishVersionFile>$(MSBuildThisFileDirectory)$(PublishDir)\emcc-version.txt</EmccPublishVersionFile>
+      <WasmAotOutDir>$(MSBuildThisFileDirectory)$(PublishDir)</WasmAotOutDir>
+    </PropertyGroup>
+  </Target>
+
+  <Target Name="AOTCompileApp" AfterTargets="PrepareBuildApp">
+    <ItemGroup>
       <AotInputAssemblies Condition="'$(RunAOTCompilation)' == 'true'" Include="$(MSBuildThisFileDirectory)$(PublishDir)\*.dll">
         <AotArguments>@(MonoAOTCompilerDefaultAotArguments, ';')</AotArguments>
         <ProcessArguments>@(MonoAOTCompilerDefaultProcessArguments, ';')</ProcessArguments>
@@ -73,7 +83,7 @@
 
     <MonoAOTCompiler
         Condition="'$(RunAOTCompilation)' == 'true'"
-        CompilerBinaryPath="$(MicrosoftNetCoreAppRuntimePackDir)native\cross\mono-aot-cross"
+        CompilerBinaryPath="$(MicrosoftNetCoreAppRuntimePackRidDir)native\cross\mono-aot-cross"
         Mode="LLVMOnly"
         OutputType="AsmOnly"
         Assemblies="@(AotInputAssemblies)"
@@ -83,25 +93,10 @@
         LLVMPath="$(EMSDK_PATH)\upstream\bin">
         <Output TaskParameter="CompiledAssemblies" ItemName="BundleAssemblies" />
     </MonoAOTCompiler>
+  </Target>
 
-    <ReadLinesFromFile File="$(MicrosoftNetCoreAppRuntimePackDir)native\src\emcc-flags.txt">
-        <Output TaskParameter="Lines" PropertyName="EmccFlags" />
-    </ReadLinesFromFile>
-
-    <ReadLinesFromFile File="$(MicrosoftNetCoreAppRuntimePackDir)native\src\emcc-version.txt">
-        <Output TaskParameter="Lines" PropertyName="RuntimeEmccVersion" />
-    </ReadLinesFromFile>
-
-    <Exec Condition="'$(RunAOTCompilation)' == 'true'" Command="source $(EMSDK_PATH)/emsdk_env.sh &amp;&amp; emcc --version | head -1 > emcc-version.txt" ConsoleToMsBuild="true" IgnoreStandardErrorWarningFormat="true" WorkingDirectory="$(MSBuildThisFileDirectory)$(PublishDir)" />
-    <ReadLinesFromFile Condition="'$(RunAOTCompilation)' == 'true'" File="$(MSBuildThisFileDirectory)$(PublishDir)\emcc-version.txt">
-        <Output TaskParameter="Lines" PropertyName="EmccVersion" />
-    </ReadLinesFromFile>
-    <Error Condition="'$(RunAOTCompilation)' == 'true' and '$(RuntimeEmccVersion)' != '$(EmccVersion)'" Text="Emscripten version mismatch, expected '$(RuntimeEmccVersion)', got '$(EmccVersion)'"/>
-
-    <Exec Condition="'$(RunAOTCompilation)' == 'true'" Command="source $(EMSDK_PATH)/emsdk_env.sh &amp;&amp; emcc $(EmccFlags) -DCORE_BINDINGS -DENABLE_AOT=1 -DDRIVER_GEN=1 -I$(MicrosoftNetCoreAppRuntimePackDir)native/include/mono-2.0 -I$(MicrosoftNetCoreAppRuntimePackDir)native/include/wasm -I$(MSBuildThisFileDirectory)$(PublishDir) $(MicrosoftNetCoreAppRuntimePackDir)native/src/driver.c -c -o driver.o" IgnoreStandardErrorWarningFormat="true" WorkingDirectory="$(MSBuildThisFileDirectory)$(PublishDir)" />
-    <Exec Condition="'$(RunAOTCompilation)' == 'true'" Command="source $(EMSDK_PATH)/emsdk_env.sh &amp;&amp; emcc $(EmccFlags) -I$(MicrosoftNetCoreAppRuntimePackDir)native/include/mono-2.0 $(MicrosoftNetCoreAppRuntimePackDir)native/src/corebindings.c -c -o corebindings.o" IgnoreStandardErrorWarningFormat="true" WorkingDirectory="$(MSBuildThisFileDirectory)$(PublishDir)" />
-    <Exec Condition="'$(RunAOTCompilation)' == 'true'" Command="source $(EMSDK_PATH)/emsdk_env.sh &amp;&amp; emcc $(EmccFlags) -DGEN_PINVOKE=1 -I$(MicrosoftNetCoreAppRuntimePackDir)native/include/wasm $(MicrosoftNetCoreAppRuntimePackDir)native/src/pinvoke.c -c -o pinvoke.o" IgnoreStandardErrorWarningFormat="true" WorkingDirectory="$(MSBuildThisFileDirectory)$(PublishDir)" />
-    <Exec Condition="'$(RunAOTCompilation)' == 'true'" Command="source $(EMSDK_PATH)/emsdk_env.sh &amp;&amp; emcc $(EmccFlags) --js-library $(MicrosoftNetCoreAppRuntimePackDir)native/src/library_mono.js --js-library $(MicrosoftNetCoreAppRuntimePackDir)native/src/binding_support.js --js-library $(MicrosoftNetCoreAppRuntimePackDir)native/src/dotnet_support.js --js-library $(MicrosoftNetCoreAppRuntimePackDir)native/src/pal_random.js driver.o pinvoke.o corebindings.o @(BundleAssemblies->'%(LlvmBitcodeFile)', ' ') libmono-ee-interp.a libmonosgen-2.0.a libmono-ilgen.a libmono-icall-table.a libSystem.Native.a libSystem.IO.Compression.Native.a libicuuc.a libicui18n.a -o dotnet.js" IgnoreStandardErrorWarningFormat="true" WorkingDirectory="$(MSBuildThisFileDirectory)$(PublishDir)" />
+  <Target Name="BuildApp" AfterTargets="AOTCompileApp">
+    <CallTarget Condition="'$(RunAOTCompilation)' == 'true'" Targets="WasmAotCompile" />
 
     <WasmAppBuilder
       AppDir="$(AppDir)"
