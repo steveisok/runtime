@@ -20,6 +20,16 @@
         "CommonTypes": [ ]
     },
     {
+        "Name": "Microsoft.NET.Runtime.Workload.AOT",
+        "Description": "The workload pack for the MonoAOTCompiler MSBuild Task",
+        "CommonTypes": [ ]
+    },
+    {
+        "Name": "Microsoft.NET.Runtime.MonoAOTCompiler.Task",
+        "Description": "The package that contains the MonoAOTCompiler MSBuild Task",
+        "CommonTypes": [ ]
+    },
+    {
         "Name": "Microsoft.NETCore.BrowserDebugHost.Transport",
         "Description": "Internal package for sharing BrowserDebugHost.",
         "CommonTypes": [ ]

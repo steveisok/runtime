@@ -7,7 +7,7 @@
   <Import Project="$(NuGetPackageRoot)\microsoft.dotnet.build.tasks.packaging\$(MicrosoftDotNetBuildTasksPackagingVersion)\build\Microsoft.DotNet.Build.Tasks.Packaging.props" />
 
   <PropertyGroup>
-    <PackageDescriptionFile>$(MSBuildThisFileDirectory)/descriptions.json</PackageDescriptionFile>
+    <PackageDescriptionFile>$(MSBuildThisFileDirectory)descriptions.json</PackageDescriptionFile>
     <PackageLicenseFile>$(CoreclrDir)/LICENSE.TXT</PackageLicenseFile>
 
     <ReleaseNotes>https://go.microsoft.com/fwlink/?LinkID=799421</ReleaseNotes>
