@@ -257,6 +257,11 @@
     <ProjectExclusions Remove="$(MSBuildThisFileDirectory)System.Buffer.Tests\tests\System.Buffer.Tests.csproj" />
   </ItemGroup>
 
+  <ItemGroup Condition="'$(TargetOS)' == 'Browser' and '$(AOTAllTestsTogether)' == 'true'">
+    <ProjectExclusions Include="$(MSBuildThisFileDirectory)*\tests\**\*.Tests.csproj" />
+    <ProjectExclusions Remove="$(MSBuildThisFileDirectory)All.Tests.csproj" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="$(MSBuildThisFileDirectory)*\tests\**\*.Tests.csproj"
                       Exclude="@(ProjectExclusions)"
