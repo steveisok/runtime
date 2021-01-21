@@ -4,13 +4,14 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <!-- These test assemblies led to errors
+    <!-- Duplicate preserve
     <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Reflection.Tests/net6.0-Release/browser-wasm/System.Reflection.Tests.dll" />
+    -->
+    <!-- Precompiling failed for these assemblies
     <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Runtime.Tests/net6.0-Browser-Release/browser-wasm/System.Runtime.Tests.dll" />
     <WasmAssembliesToBundle Include="$(ArtifactsBinDir)Microsoft.DotNet.CoreSetup.Packaging.Tests/Release/net5.0/Microsoft.DotNet.CoreSetup.Packaging.Tests.dll" />
+    -->
     <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.IO.MemoryMappedFiles.Tests/net6.0-Browser-Release/browser-wasm/System.IO.MemoryMappedFiles.Tests.dll" /> 
-    -->    
-    <!-- These test assemblies have yet to be ran     
     <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Net.Security.Tests/net6.0-Browser-Release/browser-wasm/System.Net.Security.Tests.dll" />
     <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Net.Ping.Functional.Tests/net6.0-Browser-Release/browser-wasm/System.Net.Ping.Functional.Tests.dll" />
     <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Text.Encoding.Tests/net6.0-Release/browser-wasm/System.Text.Encoding.Tests.dll" />
@@ -74,6 +75,6 @@
     <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Net.WebHeaderCollection.Tests/net6.0-Release/browser-wasm/System.Net.WebHeaderCollection.Tests.dll" />
     <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Composition.Tests/net6.0-Release/browser-wasm/System.Composition.Tests.dll" />
     <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Threading.Tasks.Dataflow.Tests/net6.0-Release/browser-wasm/System.Threading.Tasks.Dataflow.Tests.dll" />
-    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.ObjectModel.Tests/net6.0-Release/browser-wasm/System.ObjectModel.Tests.dll" /> -->
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.ObjectModel.Tests/net6.0-Release/browser-wasm/System.ObjectModel.Tests.dll" />
   </ItemGroup>
 </Project>
