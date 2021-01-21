@@ -172,6 +172,7 @@
       <TrimmerRootAssembly
           Condition="$([System.String]::Copy('%(ResolvedFileToPublish.FileName)%(ResolvedFileToPublish.Extension)').EndsWith('TestRunner.dll'))"
           Include="%(ResolvedFileToPublish.FullPath)" />
+      <TrimmerRootAssembly Include="@(WasmAssembliesToBundle)" />
     </ItemGroup>
 
     <ItemGroup>
