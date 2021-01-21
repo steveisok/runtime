@@ -1,0 +1,79 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>$(NetCoreAppCurrent)</TargetFrameworks>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- These test assemblies led to errors
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Reflection.Tests/net6.0-Release/browser-wasm/System.Reflection.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Runtime.Tests/net6.0-Browser-Release/browser-wasm/System.Runtime.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)Microsoft.DotNet.CoreSetup.Packaging.Tests/Release/net5.0/Microsoft.DotNet.CoreSetup.Packaging.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.IO.MemoryMappedFiles.Tests/net6.0-Browser-Release/browser-wasm/System.IO.MemoryMappedFiles.Tests.dll" /> 
+    -->    
+    <!-- These test assemblies have yet to be ran     
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Net.Security.Tests/net6.0-Browser-Release/browser-wasm/System.Net.Security.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Net.Ping.Functional.Tests/net6.0-Browser-Release/browser-wasm/System.Net.Ping.Functional.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Text.Encoding.Tests/net6.0-Release/browser-wasm/System.Text.Encoding.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)Microsoft.Extensions.DependencyInjection.Tests/net6.0-Release/browser-wasm/Microsoft.Extensions.DependencyInjection.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Net.Primitives.Functional.Tests/net6.0-Browser-Release/browser-wasm/System.Net.Primitives.Functional.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Xml.XmlResolver.Tests/net6.0-Release/browser-wasm/System.Xml.XmlResolver.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Xml.Linq.Properties.Tests/net6.0-Release/browser-wasm/System.Xml.Linq.Properties.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Transactions.Local.Tests/net6.0-Release/browser-wasm/System.Transactions.Local.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)Microsoft.Extensions.DependencyModel.Tests/net6.0-Release/browser-wasm/Microsoft.Extensions.DependencyModel.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Xml.Linq.Axes.Tests/net6.0-Release/browser-wasm/System.Xml.Linq.Axes.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Threading.Tests/net6.0-Release/browser-wasm/System.Threading.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Security.Cryptography.X509Certificates.Tests/net6.0-Browser-Release/browser-wasm/System.Security.Cryptography.X509Certificates.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)Microsoft.Extensions.Logging.Tests/net6.0-Release/browser-wasm/Microsoft.Extensions.Logging.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Xml.XmlNodeReader.Tests/net6.0-Release/browser-wasm/System.Xml.XmlNodeReader.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Net.Primitives.UnitTests.Tests/net6.0-Browser-Release/browser-wasm/System.Net.Primitives.UnitTests.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)Microsoft.Extensions.Hosting.Functional.Tests/net6.0-Release/browser-wasm/Microsoft.Extensions.Hosting.Functional.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Collections.Specialized.Tests/net6.0-Release/browser-wasm/System.Collections.Specialized.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Xml.Linq.Misc.Tests/net6.0-Release/browser-wasm/System.Xml.Linq.Misc.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Xml.RW.XmlReader.Tests/net6.0-Release/browser-wasm/System.Xml.RW.XmlReader.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Composition.AttributeModel.Tests/net6.0-Release/browser-wasm/System.Composition.AttributeModel.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Net.Mail.Functional.Tests/net6.0-Release/browser-wasm/System.Net.Mail.Functional.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Runtime.Serialization.Primitives.Tests/net6.0-Release/browser-wasm/System.Runtime.Serialization.Primitives.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Diagnostics.Tools.Tests/net6.0-Release/browser-wasm/System.Diagnostics.Tools.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Diagnostics.FileVersionInfo.Tests/net6.0-Browser-Release/browser-wasm/System.Diagnostics.FileVersionInfo.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Threading.Thread.Tests/net6.0-Release/browser-wasm/System.Threading.Thread.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Net.Requests.Tests/net6.0-Release/browser-wasm/System.Net.Requests.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Net.ServicePoint.Tests/net6.0-Release/browser-wasm/System.Net.ServicePoint.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Net.Http.Json.Unit.Tests/net6.0-Release/browser-wasm/System.Net.Http.Json.Unit.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.ComponentModel.Composition.Tests/net6.0-Release/browser-wasm/System.ComponentModel.Composition.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Xml.RW.SubtreeReader.Tests/net6.0-Release/browser-wasm/System.Xml.RW.SubtreeReader.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.IO.Compression.Brotli.Tests/net6.0-Browser-Release/browser-wasm/System.IO.Compression.Brotli.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Reflection.MetadataLoadContext.Tests/net6.0-Release/browser-wasm/System.Reflection.MetadataLoadContext.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Text.Json.Tests/net6.0-Release/browser-wasm/System.Text.Json.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Threading.Tasks.Tests/net6.0-Release/browser-wasm/System.Threading.Tasks.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Xml.RW.CharCheckingReader.Tests/net6.0-Release/browser-wasm/System.Xml.RW.CharCheckingReader.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Xml.Xsl.XslTransformApi.Tests/net6.0-Release/browser-wasm/System.Xml.Xsl.XslTransformApi.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)Microsoft.Extensions.Configuration.Xml.Tests/net6.0-Release/browser-wasm/Microsoft.Extensions.Configuration.Xml.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Security.Cryptography.Xml.Tests/net6.0-Release/browser-wasm/System.Security.Cryptography.Xml.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Reflection.Context.Tests/net6.0-Release/browser-wasm/System.Reflection.Context.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)Microsoft.Extensions.HostFactoryResolver.Tests/net6.0-Release/browser-wasm/Microsoft.Extensions.HostFactoryResolver.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Diagnostics.Process.Tests/net6.0-Browser-Release/browser-wasm/System.Diagnostics.Process.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Net.NameResolution.Unit.Tests/net6.0-Browser-Release/browser-wasm/System.Net.NameResolution.Unit.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Runtime.CompilerServices.Unsafe.Tests/net6.0-Release/browser-wasm/System.Runtime.CompilerServices.Unsafe.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Runtime.Serialization.Xml.ReflectionOnly.Tests/net6.0-Release/browser-wasm/System.Runtime.Serialization.Xml.ReflectionOnly.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.IO.Pipelines.Tests/net6.0-Release/browser-wasm/System.IO.Pipelines.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)Microsoft.Extensions.Options.Tests/net6.0-Release/browser-wasm/Microsoft.Extensions.Options.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)Microsoft.Extensions.Configuration.Ini.Tests/net6.0-Release/browser-wasm/Microsoft.Extensions.Configuration.Ini.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)Microsoft.Extensions.Configuration.FileExtensions.Tests/net6.0-Release/browser-wasm/Microsoft.Extensions.Configuration.FileExtensions.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.IO.Compression.ZipFile.Tests/net6.0-Release/browser-wasm/System.IO.Compression.ZipFile.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Formats.Asn1.Tests/net6.0-Release/browser-wasm/System.Formats.Asn1.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Xml.XPath.XmlDocument.Tests/net6.0-Release/browser-wasm/System.Xml.XPath.XmlDocument.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Net.Primitives.Pal.Tests/net6.0-Browser-Release/browser-wasm/System.Net.Primitives.Pal.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Net.HttpListener.Tests/net6.0-Browser-Release/browser-wasm/System.Net.HttpListener.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Data.Common.Tests/net6.0-Release/browser-wasm/System.Data.Common.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)Microsoft.CSharp.Tests/net6.0-Release/browser-wasm/Microsoft.CSharp.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)Microsoft.Extensions.Options.ConfigurationExtensions.Tests/net6.0-Release/browser-wasm/Microsoft.Extensions.Options.ConfigurationExtensions.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Runtime.InteropServices.RuntimeInformation.Tests/net6.0-Browser-Release/browser-wasm/System.Runtime.InteropServices.RuntimeInformation.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Runtime.Loader.DefaultContext.Tests/net6.0-Release/browser-wasm/System.Runtime.Loader.DefaultContext.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Threading.Overlapped.Tests/net6.0-Release/browser-wasm/System.Threading.Overlapped.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Numerics.Tensors.Tests/net6.0-Release/browser-wasm/System.Numerics.Tensors.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Net.WebHeaderCollection.Tests/net6.0-Release/browser-wasm/System.Net.WebHeaderCollection.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Composition.Tests/net6.0-Release/browser-wasm/System.Composition.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Threading.Tasks.Dataflow.Tests/net6.0-Release/browser-wasm/System.Threading.Tasks.Dataflow.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.ObjectModel.Tests/net6.0-Release/browser-wasm/System.ObjectModel.Tests.dll" /> -->
+  </ItemGroup>
+</Project>

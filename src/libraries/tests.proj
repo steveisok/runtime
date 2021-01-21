@@ -259,7 +259,8 @@
 
   <ItemGroup Condition="'$(TargetOS)' == 'Browser' and '$(AOTAllTestsTogether)' == 'true' and '$(RunAOTCompilation)' == 'true'">
     <ProjectExclusions Include="$(MSBuildThisFileDirectory)*\tests\**\*.Tests.csproj" />
-    <ProjectExclusions Remove="$(MSBuildThisFileDirectory)All.Tests.csproj" />
+    <ProjectExclusions Remove="$(MSBuildThisFileDirectory)AllTests/tests/*.Tests.csproj" />
+    <ProjectReference Include="@(ProjectReference)" BuildInParallel="true" />
   </ItemGroup>
 
   <ItemGroup>
