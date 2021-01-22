@@ -226,6 +226,11 @@
    <PropertyGroup>
      <EmccFlags Condition="'$(WasmLinkIcalls)' == 'true'">$(EmccFlags) -DLINK_ICALLS=1</EmccFlags>
    </PropertyGroup>
+    <Exec Condition="'%(_WasmAssemblies.Filename)' == 'System.Private.CoreLib'" Command="bash -c '$(_EmccCommand) $(EmccCFlags) %(_WasmAssemblies.LlvmBitcodeFile) -c -o %(Filename).o'" IgnoreStandardErrorWarningFormat="true" WorkingDirectory="$(WasmBuildDir)" StandardOutputImportance="Low" />
+
+    <ItemGroup>
+      <_WasmAOTCache Include="System.Private.CoreLib" />
+    </ItemGroup>
 
    <ItemGroup>
      <_WasmRuntimePackNativeLibs Include="libmono-ee-interp.a"/>
