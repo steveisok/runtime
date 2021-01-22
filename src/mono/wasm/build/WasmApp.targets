@@ -206,13 +206,13 @@
     </ReadLinesFromFile>
     <Error Condition="'$(RuntimeEmccVersion)' != '$(EmccVersion)'" Text="Emscripten version mismatch, expected '$(RuntimeEmccVersion)', got '$(EmccVersion)'"/>
 
-   <ItemGroup>
+    <ItemGroup>
       <_WasmPInvokeModules Include="libSystem.Native" />
       <_WasmPInvokeModules Include="libSystem.IO.Compression.Native" />
       <_WasmPInvokeModules Include="libSystem.Globalization.Native" />
-   </ItemGroup>
-   <!--This pinvoke-table.h will be used instead of the one in the runtime pack because of -I$(_WasmIntermediateOutputPath) -->
-   <PInvokeTableGenerator
+    </ItemGroup>
+    <!--This pinvoke-table.h will be used instead of the one in the runtime pack because of -I$(_WasmIntermediateOutputPath) -->
+    <PInvokeTableGenerator
      Modules="@(_WasmPInvokeModules)"
      Assemblies="@(_WasmAssemblies)"
      OutputPath="$(_WasmIntermediateOutputPath)pinvoke-table.h" />
@@ -232,29 +232,29 @@
       <_WasmAOTCache Include="System.Private.CoreLib" />
     </ItemGroup>
 
-   <ItemGroup>
-     <_WasmRuntimePackNativeLibs Include="libmono-ee-interp.a"/>
-     <_WasmRuntimePackNativeLibs Include="libmonosgen-2.0.a"/>
-     <_WasmRuntimePackNativeLibs Include="libmono-ilgen.a"/>
-     <_WasmRuntimePackNativeLibs Include="libmono-icall-table.a"/>
-     <_WasmRuntimePackNativeLibs Include="libSystem.Native.a"/>
-     <_WasmRuntimePackNativeLibs Include="libSystem.IO.Compression.Native.a"/>
-     <_WasmRuntimePackNativeLibs Include="libmono-profiler-aot.a"/>
-     <_WasmRuntimePackNativeLibs Include="libicuuc.a"/>
-     <_WasmRuntimePackNativeLibs Include="libicui18n.a"/>
-     <_WasmObjects Include="@(_WasmRuntimePackNativeLibs->'$(MicrosoftNetCoreAppRuntimePackRidDir)\native\%(FileName)%(Extension)')" />
+    <ItemGroup>
+      <_WasmRuntimePackNativeLibs Include="libmono-ee-interp.a"/>
+      <_WasmRuntimePackNativeLibs Include="libmonosgen-2.0.a"/>
+      <_WasmRuntimePackNativeLibs Include="libmono-ilgen.a"/>
+      <_WasmRuntimePackNativeLibs Include="libmono-icall-table.a"/>
+      <_WasmRuntimePackNativeLibs Include="libSystem.Native.a"/>
+      <_WasmRuntimePackNativeLibs Include="libSystem.IO.Compression.Native.a"/>
+      <_WasmRuntimePackNativeLibs Include="libmono-profiler-aot.a"/>
+      <_WasmRuntimePackNativeLibs Include="libicuuc.a"/>
+      <_WasmRuntimePackNativeLibs Include="libicui18n.a"/>
+      <_WasmObjects Include="@(_WasmRuntimePackNativeLibs->'$(MicrosoftNetCoreAppRuntimePackRidDir)\native\%(FileName)%(Extension)')" />
 
-     <_WasmObjects Include="driver.o"/>
-     <_WasmObjects Include="pinvoke.o"/>
-     <_WasmObjects Include="corebindings.o"/>
-   </ItemGroup>
+      <_WasmObjects Include="driver.o"/>
+      <_WasmObjects Include="pinvoke.o"/>
+      <_WasmObjects Include="corebindings.o"/>
+    </ItemGroup>
 
-   <PropertyGroup>
-     <_WasmIncludeDir>$(MicrosoftNetCoreAppRuntimePackRidDir)native/include</_WasmIncludeDir>
-     <_WasmSrcDir>$(MicrosoftNetCoreAppRuntimePackRidDir)native/src</_WasmSrcDir>
-     <EmccCFlags>$(EmccFlags) -DCORE_BINDINGS -DGEN_PINVOKE=1 -I$(_WasmIntermediateOutputPath) -I$(_WasmIncludeDir)/mono-2.0 -I$(_WasmIncludeDir)/wasm</EmccCFlags>
-     <EmccLDFlags>$(EmccFlags) -s TOTAL_MEMORY=536870912</EmccLDFlags>
-   </PropertyGroup>
+    <PropertyGroup>
+      <_WasmIncludeDir>$(MicrosoftNetCoreAppRuntimePackRidDir)native/include</_WasmIncludeDir>
+      <_WasmSrcDir>$(MicrosoftNetCoreAppRuntimePackRidDir)native/src</_WasmSrcDir>
+      <EmccCFlags>$(EmccFlags) -DCORE_BINDINGS -DGEN_PINVOKE=1 -I$(_WasmIntermediateOutputPath) -I$(_WasmIncludeDir)/mono-2.0 -I$(_WasmIncludeDir)/wasm</EmccCFlags>
+      <EmccLDFlags>$(EmccFlags) -s TOTAL_MEMORY=536870912</EmccLDFlags>
+    </PropertyGroup>
 
     <Exec Command="bash -c '$(_EmccCommand) $(EmccCFlags) $(_WasmSrcDir)/driver.c -c -o driver.o'" IgnoreStandardErrorWarningFormat="true" WorkingDirectory="$(_WasmIntermediateOutputPath)" StandardOutputImportance="Low" />
     <Exec Command="bash -c '$(_EmccCommand) $(EmccCFlags) $(_WasmSrcDir)/corebindings.c -c -o corebindings.o'" IgnoreStandardErrorWarningFormat="true" WorkingDirectory="$(_WasmIntermediateOutputPath)" StandardOutputImportance="Low" />
