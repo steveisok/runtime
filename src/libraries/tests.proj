@@ -304,4 +304,42 @@
           Condition="'$(TestAssemblies)' == 'true' and
                      '$(Coverage)' == 'true'" />
 
+  <UsingTask TaskName="MonoAOTCompiler" AssemblyFile="$(MonoAOTCompilerTasksAssemblyPath)" />
+
+  <Target Name="BuildAOTCache"
+          BeforeTargets="Build"
+          Condition="'$(TargetOS)' == 'Browser' and '$(AOTAllTestsTogether)' == 'true' and '$(RunAOTCompilation)' == 'true'" >
+    <PropertyGroup>
+      <EmccFlagsFile>$(MicrosoftNetCoreAppRuntimePackRidDir)native\src\emcc-flags.txt</EmccFlagsFile>
+    </PropertyGroup>
+    <ReadLinesFromFile File="$(EmccFlagsFile)">
+        <Output TaskParameter="Lines" PropertyName="_DefaultEmccFlags" />
+    </ReadLinesFromFile>
+    <PropertyGroup>
+      <EmccFlags>$(_DefaultEmccFlags) $(EmccFlags) -O1</EmccFlags>
+      <EmccFlags>$(EmccFlags) -s DISABLE_EXCEPTION_CATCHING=0</EmccFlags>
+      <EmccFlags Condition="'$(RunAOTCompilation)' == 'true'">$(EmccFlags) -DENABLE_AOT=1 -DDRIVER_GEN=1</EmccFlags>
+      <_EmsdkEnvSourceCommand>source $(EMSDK_PATH)/emsdk_env.sh &gt; /dev/null 2&gt;&amp;1</_EmsdkEnvSourceCommand>
+      <_EmccCommand>$(_EmsdkEnvSourceCommand) &amp;&amp; emcc</_EmccCommand>
+    </PropertyGroup>
+    <Message Importance="high" Text="$(ArtifactsBinDir)mono\Browser.wasm.Release\System.Private.CoreLib.dll" />
+    <MonoAOTCompiler
+      CompilerBinaryPath="$(MicrosoftNetCoreAppRuntimePackRidDir)native\cross\$(PackageRID)\mono-aot-cross"
+      Mode="LLVMOnly"
+      OutputType="AsmOnly"
+      Assemblies="$(ArtifactsBinDir)mono\Browser.wasm.Release\System.Private.CoreLib.dll"
+      UseAotDataFile="false"
+      UseLLVM="true"
+      DisableParallelAot="true"
+      LLVMPath="$(EMSDK_PATH)\upstream\bin">
+      <Output TaskParameter="CompiledAssemblies" ItemName="_WasmCacheAssemblies" />
+      <Output TaskParameter="FileWrites" ItemName="FileWrites" />
+    </MonoAOTCompiler>
+
+    <Exec Condition="'%(_WasmCacheAssemblies.Filename)' == 'System.Private.CoreLib'" Command="bash -c '$(_EmccCommand) $(EmccCFlags) %(_WasmCacheAssemblies.LlvmBitcodeFile) -c -o %(Filename).o'" IgnoreStandardErrorWarningFormat="true" WorkingDirectory="$(WasmBuildDir)" StandardOutputImportance="Low" />
+
+    <ItemGroup>
+      <_WasmAOTCache Include="System.Private.CoreLib.o" />
+    </ItemGroup>
+  </Target>
 </Project>
