@@ -5,7 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Buffers.Tests/net6.0-Release/browser-wasm/System.Buffers.Tests.dll" />
-    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Composition.Convention.Tests/net6.0-Release/browser-wasm/System.Composition.Convention.Tests.dll" />
+    <!-- <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Composition.Convention.Tests/net6.0-Release/browser-wasm/System.Composition.Convention.Tests.dll" />
     <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Security.Cryptography.Primitives.Tests/net6.0-Release/browser-wasm/System.Security.Cryptography.Primitives.Tests.dll" />
     <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Xml.Linq.SDMSample.Tests/net6.0-Release/browser-wasm/System.Xml.Linq.SDMSample.Tests.dll" />
     <WasmAssembliesToBundle Include="$(ArtifactsBinDir)Microsoft.Extensions.Configuration.CommandLine.Tests/net6.0-Release/browser-wasm/Microsoft.Extensions.Configuration.CommandLine.Tests.dll" />
@@ -83,6 +83,6 @@
     <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Memory.Data.Tests/net6.0-Release/browser-wasm/System.Memory.Data.Tests.dll" />
     <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Text.Encoding.Extensions.Tests/net6.0-Release/browser-wasm/System.Text.Encoding.Extensions.Tests.dll" />
     <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Drawing.Primitives.Tests/net6.0-Release/browser-wasm/System.Drawing.Primitives.Tests.dll" />
-    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Net.Http.Enterprise.Tests/net6.0-Browser-Release/browser-wasm/System.Net.Http.Enterprise.Tests.dll" />
+    <WasmAssembliesToBundle Include="$(ArtifactsBinDir)System.Net.Http.Enterprise.Tests/net6.0-Browser-Release/browser-wasm/System.Net.Http.Enterprise.Tests.dll" /> -->
   </ItemGroup>
 </Project>
