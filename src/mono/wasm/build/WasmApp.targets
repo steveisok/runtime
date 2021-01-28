@@ -214,7 +214,7 @@
     <!--This pinvoke-table.h will be used instead of the one in the runtime pack because of -I$(_WasmIntermediateOutputPath) -->
     <PInvokeTableGenerator
      Modules="@(_WasmPInvokeModules)"
-     Assemblies="@(_WasmAssemblies)"
+     Assemblies="@(_WasmAssemblies);$(PublishDir)System.Private.CoreLib.dll"
      OutputPath="$(_WasmIntermediateOutputPath)pinvoke-table.h" />
 
    <!-- ICall table generation -->
@@ -242,6 +242,9 @@
       <_WasmObjects Include="driver.o"/>
       <_WasmObjects Include="pinvoke.o"/>
       <_WasmObjects Include="corebindings.o"/>
+      <_Wasmobjects Include="/Users/mdhwang/runtime_wasm_clean/src/libraries/System.Private.CoreLib.o" />
+
+      <_WasmAssemblies Condition="'%(Filename)' == 'System.Private.CoreLib'" Remove="%(Identity)" />
     </ItemGroup>
 
     <PropertyGroup>
