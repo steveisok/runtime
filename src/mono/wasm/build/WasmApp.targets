@@ -220,6 +220,7 @@
 
     <MonoAOTCompiler
       CompilerBinaryPath="$(MicrosoftNetCoreAppRuntimePackRidDir)native\cross\$(PackageRID)\mono-aot-cross"
+      ExtraPaths="$(MicrosoftNetCoreAppRuntimePackRidDir)native\:$(MicrosoftNetCoreAppRuntimePackRidDir)lib\net6.0\"
       OutputDir="$(_WasmIntermediateOutputPath)"
       Mode="LLVMOnly"
       OutputType="AsmOnly"

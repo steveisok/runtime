@@ -112,6 +112,11 @@ public class MonoAOTCompiler : Microsoft.Build.Utilities.Task
     /// </summary>
     public string? MsymPath { get; set; }
 
+    /// <summary>
+    /// Allows extra directories to be added to MONO_PATH when the AOT Compiler is run
+    /// </summary>
+    public string? ExtraPaths { get; set; }
+
     [Output]
     public string[]? FileWrites { get; private set; }
 
@@ -222,7 +227,7 @@ public class MonoAOTCompiler : Microsoft.Build.Utilities.Task
     private bool PrecompileLibrary(ITaskItem assemblyItem)
     {
         string assembly = assemblyItem.ItemSpec;
-        string directory = Path.GetDirectoryName(assembly)! + "/Users/mdhwang/runtime_wasm_clean/artifacts/bin/microsoft.netcore.app.runtime.browser-wasm/Release/runtimes/browser-wasm/native:/Users/mdhwang/runtime_wasm_clean/artifacts/bin/microsoft.netcore.app.runtime.browser-wasm/Release/runtimes/browser-wasm/lib/net6.0";
+        string directory = Path.GetDirectoryName(assembly)!; //+ ":/Users/mdhwang/runtime_wasm_clean/artifacts/bin/microsoft.netcore.app.runtime.browser-wasm/Release/runtimes/browser-wasm/native:/Users/mdhwang/runtime_wasm_clean/artifacts/bin/microsoft.netcore.app.runtime.browser-wasm/Release/runtimes/browser-wasm/lib/net6.0";
         var aotAssembly = new TaskItem(assembly);
         var aotArgs = new List<string>();
         var processArgs = new List<string>();
@@ -338,7 +343,7 @@ public class MonoAOTCompiler : Microsoft.Build.Utilities.Task
 
         var envVariables = new Dictionary<string, string>
         {
-            {"MONO_PATH", directory},
+            {"MONO_PATH", string.IsNullOrEmpty(ExtraPaths) ? directory : $"{directory}:{ExtraPaths}"},
             {"MONO_ENV_OPTIONS", string.Empty} // we do not want options to be provided out of band to the cross compilers
         };
 

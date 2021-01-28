@@ -260,9 +260,11 @@
   <ItemGroup Condition="'$(TargetOS)' == 'Browser' and '$(AOTAllTestsTogether)' == 'true' and '$(RunAOTCompilation)' == 'true'">
     <ProjectExclusions Include="$(MSBuildThisFileDirectory)*\tests\**\*.Tests.csproj" />
     <ProjectExclusions Remove="$(MSBuildThisFileDirectory)AllTests/tests/GroupOne.Tests.csproj" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)\System.Buffers\tests\*.Tests.csproj" />
     <ProjectReference Include="@(ProjectReference)" BuildInParallel="true" />
   </ItemGroup>
 
+<!--
   <ItemGroup>
     <ProjectReference Include="$(MSBuildThisFileDirectory)*\tests\**\*.Tests.csproj"
                       Exclude="@(ProjectExclusions)"
@@ -274,7 +276,7 @@
                       BuildInParallel="false"
                       Condition="'$(TestTrimming)' == 'true'" />
   </ItemGroup>
-
+-->
   <ItemGroup Condition="'$(ArchiveTests)' == 'true' and ('$(TargetOS)' == 'iOS' or '$(TargetOS)' == 'tvOS')">
     <ProjectReference Include="$(MonoProjectRoot)netcore\sample\iOS\Program.csproj"
                       BuildInParallel="false" />
