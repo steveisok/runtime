@@ -72,7 +72,7 @@
         <AotArguments>@(MonoAOTCompilerDefaultAotArguments, ';')</AotArguments>
         <ProcessArguments>@(MonoAOTCompilerDefaultProcessArguments, ';')</ProcessArguments>
       </_AotInputAssemblies>
-      <_AotInputAssemblies Condition="'%(Filename)' == 'System.Private.CoreLib'" Remove="%(Identity)" />
+      <_AotInputAssemblies Condition="'%(Filename)' == '%(_WasmAOTCache.Filename)'" Remove="%(Identity)" />
       <_WasmAssemblies Remove="@(_WasmAssemblies)" />
     </ItemGroup>
     <PropertyGroup>
@@ -178,6 +178,67 @@
     <Exec Condition="'$(RunAOTCompilation)' == 'true' and '$(ArchiveTests)' != 'true'" Command="mono-cil-strip -q %(_managedAppAssemblies.Identity)" />
   </Target>
 
+  <Target Name="BuildAOTCache"
+          BeforeTargets="Build"
+          Condition="'$(TargetOS)' == 'Browser' and '$(AOTAllTestsTogether)' == 'true' and '$(RunAOTCompilation)' == 'true'" >
+
+    <PropertyGroup>
+      <_WasmIntermediateOutputPath>$(IntermediateOutputPath)\wasm\</_WasmIntermediateOutputPath>
+
+      <_EmsdkEnvSourceCommand>source $(EMSDK_PATH)/emsdk_env.sh &gt; /dev/null 2&gt;&amp;1</_EmsdkEnvSourceCommand>
+      <_EmccCommand>$(_EmsdkEnvSourceCommand) &amp;&amp; emcc -Oz -g -s DISABLE_EXCEPTION_CATCHING=0</_EmccCommand>
+    </PropertyGroup>
+
+    <MakeDir Directories="$(_WasmIntermediateOutputPath)" />
+
+    <ItemGroup>
+      <MonoAOTCompilerDefaultAotArguments Include="no-opt" />
+      <MonoAOTCompilerDefaultAotArguments Include="static" />
+      <MonoAOTCompilerDefaultAotArguments Include="direct-icalls" />
+      <MonoAOTCompilerDefaultAotArguments Include="deterministic" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <_AotCacheAssemblies Include="$(MicrosoftNetCoreAppRuntimePackRidDir)native\System.Private.CoreLib.dll">
+        <AotArguments>@(MonoAOTCompilerDefaultAotArguments, ';')</AotArguments>
+      </_AotCacheAssemblies>
+      <_AotCacheAssemblies Include="$(MicrosoftNetCoreAppRuntimePackRidDir)lib\net6.0\System.Collections.dll">
+        <AotArguments>@(MonoAOTCompilerDefaultAotArguments, ';')</AotArguments>
+      </_AotCacheAssemblies>
+    </ItemGroup>
+    <Message Importance="High" Text="_AotCacheAssemblies: @(_AotCacheAssemblies)" />
+
+    <!-- <ItemGroup>  
+      <_AotCacheAssemblies Condition="'%(Filename)' == 'Microsoft.Csharp'" Remove="%(Identity)" />
+      <_AotCacheAssemblies Condition="'%(Filename)' == 'Microsoft.VisualBasic.Core'" Remove="%(Identity)" />
+      <_AotCacheAssemblies Condition="'%(Filename)' == 'Microsoft.VisualBasic'" Remove="%(Identity)" />
+      <_AotCacheAssemblies Condition="'%(Filename)' == 'Microsoft.Win32.Registry'" Remove="%(Identity)" />
+      <_AotCacheAssemblies Condition="'%(Filename)' == 'Microsoft.Win32.Primitives'" Remove="%(Identity)" />
+      <_AotCacheAssemblies Condition="'%(Filename)' == 'mscorlib'" Remove="%(Identity)" />
+      <_AotCacheAssemblies Condition="'%(Filename)' == 'netstandard'" Remove="%(Identity)" />
+    </ItemGroup> -->
+
+    <MonoAOTCompiler
+      CompilerBinaryPath="$(MicrosoftNetCoreAppRuntimePackRidDir)native\cross\$(PackageRID)\mono-aot-cross"
+      OutputDir="$(_WasmIntermediateOutputPath)"
+      Mode="LLVMOnly"
+      OutputType="AsmOnly"
+      Assemblies="@(_AotCacheAssemblies)"
+      UseAotDataFile="false"
+      UseLLVM="true"
+      DisableParallelAot="true"
+      LLVMPath="$(EMSDK_PATH)\upstream\bin">
+      <Output TaskParameter="CompiledAssemblies" ItemName="_WasmCacheAssemblies" />
+      <Output TaskParameter="FileWrites" ItemName="FileWrites" />
+    </MonoAOTCompiler>
+
+    <Exec Command="bash -c '$(_EmccCommand) %(_WasmCacheAssemblies.LlvmBitcodeFile) -c -o %(_WasmCacheAssemblies.Filename).o'" IgnoreStandardErrorWarningFormat="true" WorkingDirectory="$(WasmBuildDir)" StandardOutputImportance="Low" />
+
+    <ItemGroup>
+      <_WasmAOTCache Include="$(MSBuildThisFileDirectory)%(_WasmCacheAssemblies.Filename).o" />
+    </ItemGroup>
+  </Target>
+
   <Target Name="_WasmBuildNative" DependsOnTargets="_WasmAotCompileApp;_GenerateDriverGenC" Condition="'$(WasmBuildNative)' == 'true'">
     <PropertyGroup>
       <EmccFlagsFile>$(MicrosoftNetCoreAppRuntimePackRidDir)native\src\emcc-flags.txt</EmccFlagsFile>
@@ -214,7 +275,7 @@
     <!--This pinvoke-table.h will be used instead of the one in the runtime pack because of -I$(_WasmIntermediateOutputPath) -->
     <PInvokeTableGenerator
      Modules="@(_WasmPInvokeModules)"
-     Assemblies="@(_WasmAssemblies);$(PublishDir)System.Private.CoreLib.dll"
+     Assemblies="@(_WasmAssemblies)"
      OutputPath="$(_WasmIntermediateOutputPath)pinvoke-table.h" />
 
    <!-- ICall table generation -->
@@ -242,9 +303,6 @@
       <_WasmObjects Include="driver.o"/>
       <_WasmObjects Include="pinvoke.o"/>
       <_WasmObjects Include="corebindings.o"/>
-      <_Wasmobjects Include="/Users/mdhwang/runtime_wasm_clean/src/libraries/System.Private.CoreLib.o" />
-
-      <_WasmAssemblies Condition="'%(Filename)' == 'System.Private.CoreLib'" Remove="%(Identity)" />
     </ItemGroup>
 
     <PropertyGroup>
