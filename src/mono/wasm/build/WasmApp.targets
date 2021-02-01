@@ -68,11 +68,17 @@
       <MonoAOTCompilerDefaultAotArguments Include="deterministic" />
     </ItemGroup>
     <ItemGroup>
-      <_AotInputAssemblies Include="@(_WasmAssemblies->Distinct())">
+      <_AllWasmAssemblies Include="@(_WasmAssemblies)" />
+      <_TempAssemblies 
+        Include="@(_WasmAssemblies->Distinct()->'%(FileName)')" 
+        Exclude="@(_WasmAOTCache)">
+        <AssemblyPath>%(_WasmAssemblies.Identity)</AssemblyPath>
+      </_TempAssemblies>
+
+      <_AotInputAssemblies Include="%(_TempAssemblies.AssemblyPath)">
         <AotArguments>@(MonoAOTCompilerDefaultAotArguments, ';')</AotArguments>
         <ProcessArguments>@(MonoAOTCompilerDefaultProcessArguments, ';')</ProcessArguments>
       </_AotInputAssemblies>
-      <_AotInputAssemblies Condition="'%(Filename)' == '%(_WasmAOTCache.Filename)'" Remove="%(Identity)" />
       <_WasmAssemblies Remove="@(_WasmAssemblies)" />
     </ItemGroup>
     <PropertyGroup>
@@ -147,12 +153,15 @@
 
       <WasmNativeAsset Include="$(MicrosoftNetCoreAppRuntimePackRidDir)native\$(WasmIcuDataFileName)" Condition="'$(WasmInvariantGlobalization)' != 'true'" />
       <WasmNativeAsset Include="$(MicrosoftNetCoreAppRuntimePackRidDir)native\dotnet.timezones.blat" />
+
+      <_WasmAppBuilderAssemblies Include="@(_WasmAssemblies)" />
+      <_WasmAppBuilderAssemblies Include="%(_WasmAOTCache.AssemblyPath)" />
     </ItemGroup>
 
     <WasmAppBuilder
       AppDir="$(WasmAppDir)"
       MainJS="$(WasmMainJSPath)"
-      Assemblies="@(_WasmAssemblies)"
+      Assemblies="@(_WasmAppBuilderAssemblies)"
       InvariantGlobalization="$(WasmInvariantGlobalization)"
       SatelliteAssemblies="@(WasmSatelliteAssemblies)"
       FilesToIncludeInFileSystem="@(WasmFilesToIncludeInFileSystem)"
@@ -178,18 +187,38 @@
     <Exec Condition="'$(RunAOTCompilation)' == 'true' and '$(ArchiveTests)' != 'true'" Command="mono-cil-strip -q %(_managedAppAssemblies.Identity)" />
   </Target>
 
-  <Target Name="BuildAOTCache"
-          BeforeTargets="Build"
-          Condition="'$(TargetOS)' == 'Browser' and '$(AOTAllTestsTogether)' == 'true' and '$(RunAOTCompilation)' == 'true'" >
+  <Target Name="_CheckNeedToBuildAotCache"
+          Condition="'$(TargetOS)' == 'Browser' and '$(AOTAllTestsTogether)' == 'true' and '$(RunAOTCompilation)' == 'true'">
+
+      <PropertyGroup>
+        <_WasmIntermediateCachePath>$(IntermediateOutputPath)\wasm\runtime-pack-cache\</_WasmIntermediateCachePath>
+        <_ShouldBuildAotCache Condition="!Exists('$(_WasmIntermediateCachePath)')">true</_ShouldBuildAotCache>
+      </PropertyGroup>
+
+      <ItemGroup>
+        <_RuntimePackAssemblies Include="$(MicrosoftNetCoreAppRuntimePackRidDir)native\System.Private.CoreLib.dll" />
+        <_RuntimePackAssemblies Include="$(MicrosoftNetCoreAppRuntimePackRidDir)lib\net6.0\*.dll" />
+      </ItemGroup>
+
+      <ItemGroup Condition="'$(_ShouldBuildAotCache)' != 'true'">
+        <_WasmAOTCache Include="%(_RuntimePackAssemblies.Filename)">
+          <ObjectFile>$(_WasmIntermediateCachePath)%(_RuntimePackAssemblies.Filename).o</ObjectFile>
+          <AssemblyPath>%(_RuntimePackAssemblies.Identity)</AssemblyPath>
+        </_WasmAOTCache>
+      </ItemGroup>
+  </Target>
+
+  <Target Name="_BuildWasmAotCache"
+          Condition="'$(_ShouldBuildAotCache)' == 'true'">
 
     <PropertyGroup>
-      <_WasmIntermediateOutputPath>$(IntermediateOutputPath)\wasm\</_WasmIntermediateOutputPath>
+      <!--<_WasmIntermediateOutputPath>$(IntermediateOutputPath)\wasm\runtimepack-cache</_WasmIntermediateOutputPath>-->
 
       <_EmsdkEnvSourceCommand>source $(EMSDK_PATH)/emsdk_env.sh &gt; /dev/null 2&gt;&amp;1</_EmsdkEnvSourceCommand>
       <_EmccCommand>$(_EmsdkEnvSourceCommand) &amp;&amp; emcc -Oz -g -s DISABLE_EXCEPTION_CATCHING=0</_EmccCommand>
     </PropertyGroup>
 
-    <MakeDir Directories="$(_WasmIntermediateOutputPath)" />
+    <MakeDir Directories="$(_WasmIntermediateCachePath)" />
 
     <ItemGroup>
       <MonoAOTCompilerDefaultAotArguments Include="no-opt" />
@@ -199,12 +228,17 @@
     </ItemGroup>
 
     <ItemGroup>
+      <_AotCacheAssemblies Include="@(_RuntimePackAssemblies)">
+        <AotArguments>@(MonoAOTCompilerDefaultAotArguments, ';')</AotArguments>
+      </_AotCacheAssemblies>
+      <!--
       <_AotCacheAssemblies Include="$(MicrosoftNetCoreAppRuntimePackRidDir)native\System.Private.CoreLib.dll">
         <AotArguments>@(MonoAOTCompilerDefaultAotArguments, ';')</AotArguments>
       </_AotCacheAssemblies>
       <_AotCacheAssemblies Include="$(MicrosoftNetCoreAppRuntimePackRidDir)lib\net6.0\System.Collections.dll">
         <AotArguments>@(MonoAOTCompilerDefaultAotArguments, ';')</AotArguments>
       </_AotCacheAssemblies>
+      -->
     </ItemGroup>
     <Message Importance="High" Text="_AotCacheAssemblies: @(_AotCacheAssemblies)" />
 
@@ -221,7 +255,7 @@
     <MonoAOTCompiler
       CompilerBinaryPath="$(MicrosoftNetCoreAppRuntimePackRidDir)native\cross\$(PackageRID)\mono-aot-cross"
       ExtraPaths="$(MicrosoftNetCoreAppRuntimePackRidDir)native\:$(MicrosoftNetCoreAppRuntimePackRidDir)lib\net6.0\"
-      OutputDir="$(_WasmIntermediateOutputPath)"
+      OutputDir="$(_WasmIntermediateCachePath)"
       Mode="LLVMOnly"
       OutputType="AsmOnly"
       Assemblies="@(_AotCacheAssemblies)"
@@ -233,14 +267,17 @@
       <Output TaskParameter="FileWrites" ItemName="FileWrites" />
     </MonoAOTCompiler>
 
-    <Exec Command="bash -c '$(_EmccCommand) %(_WasmCacheAssemblies.LlvmBitcodeFile) -c -o %(_WasmCacheAssemblies.Filename).o'" IgnoreStandardErrorWarningFormat="true" WorkingDirectory="$(WasmBuildDir)" StandardOutputImportance="Low" />
+    <Exec Command="bash -c '$(_EmccCommand) %(_WasmCacheAssemblies.LlvmBitcodeFile) -c -o $(_WasmIntermediateCachePath)%(_WasmCacheAssemblies.Filename).o'" IgnoreStandardErrorWarningFormat="true" WorkingDirectory="$(WasmBuildDir)" StandardOutputImportance="Low" />
 
     <ItemGroup>
-      <_WasmAOTCache Include="$(MSBuildThisFileDirectory)%(_WasmCacheAssemblies.Filename).o" />
+      <_WasmAOTCache Include="%(_WasmCacheAssemblies.Filename)">
+        <ObjectFile>$(_WasmIntermediateCachePath)%(_WasmCacheAssemblies.Filename).o</ObjectFile>
+        <AssemblyPath>%(_WasmCacheAssemblies.Identity)</AssemblyPath>
+      </_WasmAOTCache>
     </ItemGroup>
   </Target>
 
-  <Target Name="_WasmBuildNative" DependsOnTargets="_WasmAotCompileApp;_GenerateDriverGenC" Condition="'$(WasmBuildNative)' == 'true'">
+  <Target Name="_WasmBuildNative" DependsOnTargets="_CheckNeedToBuildAotCache;_BuildWasmAotCache;_WasmAotCompileApp;_GenerateDriverGenC" Condition="'$(WasmBuildNative)' == 'true'">
     <PropertyGroup>
       <EmccFlagsFile>$(MicrosoftNetCoreAppRuntimePackRidDir)native\src\emcc-flags.txt</EmccFlagsFile>
       <RuntimeEmccVersionFile>$(MicrosoftNetCoreAppRuntimePackRidDir)native\src\emcc-version.txt</RuntimeEmccVersionFile>
@@ -272,18 +309,21 @@
       <_WasmPInvokeModules Include="libSystem.Native" />
       <_WasmPInvokeModules Include="libSystem.IO.Compression.Native" />
       <_WasmPInvokeModules Include="libSystem.Globalization.Native" />
+
+      <_PInvokeAssemblies Include="@(_AllWasmAssemblies)" />
+      <!--<_PInvokeAssemblies Include="%(_WasmAOTCache.AssemblyPath)" />-->
     </ItemGroup>
     <!--This pinvoke-table.h will be used instead of the one in the runtime pack because of -I$(_WasmIntermediateOutputPath) -->
     <PInvokeTableGenerator
      Modules="@(_WasmPInvokeModules)"
-     Assemblies="@(_WasmAssemblies)"
+     Assemblies="@(_PInvokeAssemblies)"
      OutputPath="$(_WasmIntermediateOutputPath)pinvoke-table.h" />
 
    <!-- ICall table generation -->
    <Exec Condition="'$(WasmLinkIcalls)' == 'true'" Command="$(MonoAotCrossCompilerPath) --print-icall-table > $(_WasmIntermediateOutputPath)/runtime-icall-table.h" />
    <IcallTableGenerator Condition="'$(WasmLinkIcalls)' == 'true'"
      RuntimeIcallTableFile="$(_WasmIntermediateOutputPath)/runtime-icall-table.h"
-     Assemblies="@(_WasmAssemblies)"
+     Assemblies="@(_PInvokeAssemblies)"
      OutputPath="$(_WasmIntermediateOutputPath)/icall-table.h" />
    <PropertyGroup>
      <EmccFlags Condition="'$(WasmLinkIcalls)' == 'true'">$(EmccFlags) -DLINK_ICALLS=1</EmccFlags>
@@ -316,7 +356,7 @@
     <Exec Command="bash -c '$(_EmccCommand) $(EmccCFlags) $(_WasmSrcDir)/driver.c -c -o driver.o'" IgnoreStandardErrorWarningFormat="true" WorkingDirectory="$(_WasmIntermediateOutputPath)" StandardOutputImportance="Low" />
     <Exec Command="bash -c '$(_EmccCommand) $(EmccCFlags) $(_WasmSrcDir)/corebindings.c -c -o corebindings.o'" IgnoreStandardErrorWarningFormat="true" WorkingDirectory="$(_WasmIntermediateOutputPath)" StandardOutputImportance="Low" />
     <Exec Command="bash -c '$(_EmccCommand) $(EmccCFlags) $(_WasmSrcDir)/pinvoke.c -c -o pinvoke.o'" IgnoreStandardErrorWarningFormat="true" WorkingDirectory="$(_WasmIntermediateOutputPath)" StandardOutputImportance="Low" />
-    <Exec Command="bash -c '$(_EmccCommand) $(EmccLDFlags) --js-library $(_WasmSrcDir)/library_mono.js --js-library $(_WasmSrcDir)/binding_support.js --js-library $(_WasmSrcDir)/dotnet_support.js --js-library $(_WasmSrcDir)/pal_random.js @(_WasmAssemblies->'%(LlvmBitcodeFile)', ' ') @(_WasmObjects, ' ') @(_WasmAOTCache, ' ') -o dotnet.js'" IgnoreStandardErrorWarningFormat="true" WorkingDirectory="$(_WasmIntermediateOutputPath)" StandardOutputImportance="Low" />
+    <Exec Command="bash -c '$(_EmccCommand) $(EmccLDFlags) --js-library $(_WasmSrcDir)/library_mono.js --js-library $(_WasmSrcDir)/binding_support.js --js-library $(_WasmSrcDir)/dotnet_support.js --js-library $(_WasmSrcDir)/pal_random.js @(_WasmAssemblies->'%(LlvmBitcodeFile)', ' ') @(_WasmObjects, ' ') @(_WasmAOTCache->'%(ObjectFile)', ' ') -o dotnet.js'" IgnoreStandardErrorWarningFormat="true" WorkingDirectory="$(_WasmIntermediateOutputPath)" StandardOutputImportance="Low" />
     <Exec Condition="'$(WasmNativeStrip)' == 'true'" Command="bash -c '$(EMSDK_PATH)/upstream/bin/wasm-opt --strip-dwarf dotnet.wasm -o dotnet.wasm'" IgnoreStandardErrorWarningFormat="true" WorkingDirectory="$(_WasmIntermediateOutputPath)" />
 
     <ItemGroup>

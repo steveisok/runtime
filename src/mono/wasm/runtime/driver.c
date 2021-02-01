@@ -477,6 +477,8 @@ mono_wasm_load_runtime (const char *unused, int debug_level)
 {
 	const char *interp_opts = "";
 
+	monoeg_g_setenv ("MONO_LOG_LEVEL", "debug", 0);
+	monoeg_g_setenv ("MONO_LOG_MASK", "all", 0);
 #ifdef DEBUG
 	monoeg_g_setenv ("MONO_LOG_LEVEL", "debug", 0);
 	monoeg_g_setenv ("MONO_LOG_MASK", "gc", 0);
