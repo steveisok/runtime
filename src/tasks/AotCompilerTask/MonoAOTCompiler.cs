@@ -128,6 +128,21 @@ public class MonoAOTCompiler : Microsoft.Build.Utilities.Task
     /// </summary>
     public string? DedupAssembly { get; set; }
 
+    /// <summary>
+    /// The path to the directory to help in linking
+    /// </summary>
+    public string? ToolChainPrefix { get; set; }
+
+    /// <summary>
+    /// The name of the linker tool to run
+    /// </summary>
+    public string? ToolChainName { get; set; }
+
+    /// <summary>
+    /// A list of extra toolchain libraries to include in LDFLAGS
+    /// </summary>
+    public ITaskItem[]? ToolChainLibraries { get; set; }
+
     /// Debug option in llvm aot mode
     /// defaults to "nodebug" since some targes can't generate debug info
     /// </summary>
@@ -200,6 +215,7 @@ public class MonoAOTCompiler : Microsoft.Build.Utilities.Task
         {
             case "Normal": parsedOutputType = MonoAotOutputType.Normal; break;
             case "AsmOnly": parsedOutputType = MonoAotOutputType.AsmOnly; break;
+            case "Shared": parsedOutputType = MonoAotOutputType.Shared; break;
             default:
                 throw new ArgumentException($"'{nameof(OutputType)}' must be one of: '{nameof(MonoAotOutputType.Normal)}', '{nameof(MonoAotOutputType.AsmOnly)}'. Received: '{OutputType}'.", nameof(OutputType));
         }
@@ -341,6 +357,12 @@ public class MonoAOTCompiler : Microsoft.Build.Utilities.Task
                 aotArgs.Add($"outfile={assemblerFile}");
                 aotAssembly.SetMetadata("AssemblerFile", assemblerFile);
             }
+            else if (parsedOutputType == MonoAotOutputType.Shared)
+            {
+                string libFile = Path.Combine(OutputDir, Path.ChangeExtension(assemblyFilename, ".dll.so"));
+                aotArgs.Add($"outfile={libFile}");
+                aotAssembly.SetMetadata("LibraryFile", libFile);
+            }
             else
             {
                 string objectFile = Path.Combine(OutputDir, Path.ChangeExtension(assemblyFilename, ".dll.o"));
@@ -373,6 +395,8 @@ public class MonoAOTCompiler : Microsoft.Build.Utilities.Task
         {
             aotArgs.Add($"profile={AotProfilePath},profile-only");
         }
+
+        SetToolChainArgs(aotArgs);
 
         // we need to quote the entire --aot arguments here to make sure it is parsed
         // on Windows as one argument. Otherwise it will be split up into multiple
@@ -429,6 +453,35 @@ public class MonoAOTCompiler : Microsoft.Build.Utilities.Task
 
         compiledAssemblies.Add(aotAssembly);
         return true;
+    }
+
+    private void SetToolChainArgs(List<string> aotArgs)
+    {
+        var ldFlags = new StringBuilder();
+
+        foreach (var toolLib in ToolChainLibraries!)
+        {
+            if (!string.IsNullOrEmpty(toolLib.ItemSpec))
+            {
+                ldFlags.AppendLine(toolLib.ItemSpec);
+            }
+        }
+
+        if (!string.IsNullOrEmpty(ToolChainPrefix))
+        {
+            aotArgs.Add($"tool-prefix={ToolChainPrefix}");
+        }
+
+        if (!string.IsNullOrEmpty(ToolChainName))
+        {
+            aotArgs.Add($"ld-name={ToolChainName}");
+        }
+
+        if (ldFlags.Length > 0)
+        {
+            var flags = string.Join(";", ldFlags.ToString());
+            aotArgs.Add($"ld-flags={flags}");
+        }
     }
 
     private void GenerateAotModulesTable(ITaskItem[] assemblies, string[]? profilers)
@@ -520,6 +573,7 @@ public enum MonoAotMode
 public enum MonoAotOutputType
 {
     Normal,
+    Shared,
     AsmOnly,
 }
 

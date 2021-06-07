@@ -125,11 +125,12 @@ public class ApkBuilder
 
         var assemblerFiles = new StringBuilder();
         var assemblerFilesToLink = new StringBuilder();
+        var assemblerLinkDirs = new HashSet<string>();
         foreach (ITaskItem file in Assemblies)
         {
             // use AOT files if available
             var obj = file.GetMetadata("AssemblerFile");
-            var llvmObj = file.GetMetadata("LlvmObjectFile");
+            var lib = file.GetMetadata("LibraryFile");
 
             if (!string.IsNullOrEmpty(obj))
             {
@@ -137,17 +138,27 @@ public class ApkBuilder
                 assemblerFiles.AppendLine($"add_library({name} OBJECT {obj})");
                 assemblerFilesToLink.AppendLine($"    {name}");
             }
+            else if (!string.IsNullOrEmpty(lib))
+            {
+                //var name = Path.GetDirectoryName(lib);
+                var name = Path.GetFileNameWithoutExtension(lib);
+                assemblerFiles.AppendLine($"add_library({name} SHARED IMPORTED)");
+                assemblerFiles.AppendLine($"set_property(TARGET {name} PROPERTY IMPORTED_LOCATION {lib})");
+                assemblerFilesToLink.AppendLine($"    {name}");
+                //assemblerLinkDirs.Add(name!);
+            }
 
+            var llvmObj = file.GetMetadata("LlvmObjectFile");
             if (!string.IsNullOrEmpty(llvmObj))
             {
-                var name = Path.GetFileNameWithoutExtension(llvmObj);
                 assemblerFilesToLink.AppendLine($"    {llvmObj}");
             }
         }
 
-        if (ForceAOT && assemblerFiles.Length == 0)
+        var nativeLinkDirs = "";
+        foreach (var linkDir in assemblerLinkDirs)
         {
-            throw new InvalidOperationException("Need list of AOT files.");
+            nativeLinkDirs += $"target_link_directories(INTERFACE {linkDir}){Environment.NewLine}";
         }
 
         Directory.CreateDirectory(OutputDir);
@@ -279,6 +290,7 @@ public class ApkBuilder
 
         string cmakeLists = Utils.GetEmbeddedResource("CMakeLists-android.txt")
             .Replace("%MonoInclude%", monoRuntimeHeaders)
+            .Replace("%NativeLinkDirectories%", nativeLinkDirs)
             .Replace("%NativeLibrariesToLink%", nativeLibraries)
             .Replace("%AotSources%", aotSources)
             .Replace("%AotModulesSource%", string.IsNullOrEmpty(aotSources) ? "" : "modules.c");

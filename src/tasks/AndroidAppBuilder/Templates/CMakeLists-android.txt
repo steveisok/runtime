@@ -27,6 +27,8 @@ add_library(
 
 include_directories("%MonoInclude%")
 
+%NativeLinkDirectories%
+
 target_link_libraries(
     monodroid
     %NativeLibrariesToLink%

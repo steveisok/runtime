@@ -69,7 +69,68 @@
              TaskName="AndroidAppBuilderTask"
              AssemblyFile="$(AndroidAppBuilderTasksAssemblyPath)" />
 
-  <Target Condition="'$(TargetOS)' == 'Android'" Name="BundleTestAndroidApp" DependsOnTargets="GenerateRuntimeConfig">
+  <Target Condition="'$(RunAOTCompilation)' == 'true'" Name="_PrepareAndroidAotCompileApp">
+    <PropertyGroup>
+      <AndroidApiLevel>android-21</AndroidApiLevel>
+
+      <_ToolChainHostPlatform Condition="$([MSBuild]::IsOSPlatform('OSX'))">darwin-x86_64</_ToolChainHostPlatform>
+      <_ToolChainHostPlatform Condition="$([MSBuild]::IsOSPlatform('Linux'))">linux-x86_64</_ToolChainHostPlatform>
+
+      <_ToolChainArchDirName Condition="'$(TargetArchitecture)' == 'x86'">x86-4.9</_ToolChainArchDirName>
+      <_ToolChainArchDirName Condition="'$(TargetArchitecture)' == 'x64'">x86_64-4.9</_ToolChainArchDirName>
+      <_ToolChainArchDirName Condition="'$(TargetArchitecture)' == 'arm'">arm-linux-androideabi-4.9</_ToolChainArchDirName>
+      <_ToolChainArchDirName Condition="'$(TargetArchitecture)' == 'arm64'">aarch64-linux-android-4.9</_ToolChainArchDirName>
+
+      <_AndroidArch Condition="'$(TargetArchitecture)' == 'x86'">arch-x86</_AndroidArch>
+      <_AndroidArch Condition="'$(TargetArchitecture)' == 'x64'">arch-x86_64</_AndroidArch>
+      <_AndroidArch Condition="'$(TargetArchitecture)' == 'arm'">arch-arm</_AndroidArch>
+      <_AndroidArch Condition="'$(TargetArchitecture)' == 'arm64'">arch-arm64</_AndroidArch>
+
+      <_AndroidArchDirName Condition="'$(TargetArchitecture)' == 'x86'">i686-linux-android</_AndroidArchDirName>
+      <_AndroidArchDirName Condition="'$(TargetArchitecture)' == 'x64'">x86_64-linux-android</_AndroidArchDirName>
+      <_AndroidArchDirName Condition="'$(TargetArchitecture)' == 'arm'">arm-linux-androideabi</_AndroidArchDirName>
+      <_AndroidArchDirName Condition="'$(TargetArchitecture)' == 'arm64'">aarch64-linux-android</_AndroidArchDirName>
+
+      <_AndroidLibDirName Condition="'$(TargetArchitecture)' == 'x64'">lib64</_AndroidLibDirName>
+      <_AndroidLibDirName Condition="'$(TargetArchitecture)' != 'x64'">lib</_AndroidLibDirName>
+
+      <!-- Could be lib or lib64 -->
+      <_AndroidLibDir>$([MSBuild]::NormalizeDirectory('$(ANDROID_NDK_ROOT)', 'platforms', '$(AndroidApiLevel)', '$(_AndroidArch)', 'usr', '$(_AndroidLibDirName)'))</_AndroidLibDir>
+
+      <_ToolChainDir Condition="'$(MonoEnableLLVM)' == 'true'">$([MSBuild]::NormalizeDirectory('$(ANDROID_NDK_ROOT)', 'toolchains', 'llvm', 'prebuilt', '$(_ToolChainHostPlatform)'))</_ToolChainDir>
+      <_ToolChainDir Condition="'$(MonoEnableLLVM)' != 'true'">$([MSBuild]::NormalizeDirectory('$(ANDROID_NDK_ROOT)', 'toolchains', '$(_ToolChainArchDirName)', 'prebuilt', '$(_ToolChainHostPlatform)'))</_ToolChainDir>
+
+      <_ToolChainPrefix>$([MSBuild]::NormalizeDirectory('$(_ToolChainDir)', '$(_AndroidArchDirName)', 'bin'))</_ToolChainPrefix>
+
+      <_ToolChainLibDir>$([MSBuild]::NormalizeDirectory('$(_ToolChainDir)', 'lib', 'gcc', '$(_AndroidArchDirName)', '4.9.x'))</_ToolChainLibDir>
+      <!--<_ToolChainLibDir Condition="'$(MonoEnableLLVM)' != 'true'">$([MSBuild]::NormalizeDirectory(, 'gcc', '$(_AndroidArchDirName)', '4.9.x'))</_ToolChainLibDir>-->
+
+      <_ToolChainName Condition="'$(MonoEnableLLVM)' == 'true'">$([MSBuild]::NormalizePath('$(_ToolChainDir)', '$(_AndroidArchDirName)', 'bin', 'ld'))</_ToolChainName>
+      <_ToolChainName Condition="'$(MonoEnableLLVM)' != 'true'">ld</_ToolChainName>
+
+      <_CompilerLibDir Condition="'$(TargetArchitecture)' == 'arm'">$([MSBuild]::NormalizeDirectory('$(ANDROID_NDK_ROOT)', 'sysroot', 'usr', 'lib', '$(_AndroidArchDirName)'))</_CompilerLibDir>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <AotInputAssemblies Include="$(PublishDir)\*.dll">
+        <AotArguments>@(MonoAOTCompilerDefaultAotArguments, ';')</AotArguments>
+        <ProcessArguments>@(MonoAOTCompilerDefaultProcessArguments, ';')</ProcessArguments>
+      </AotInputAssemblies>
+    </ItemGroup>
+
+    <!-- Setup Android Toolchain params -->
+    <ItemGroup>
+      <_ToolChainLibraries Include="-L$(_ToolChainLibDir)" />
+      <_ToolChainLibraries Include="-L$(_AndroidLibDir)" />
+      <_ToolChainLibraries Condition="'$(TargetArchitecture)' == 'arm'" Include="-L$(_CompilerLibDir)" />
+
+      <_ToolChainLibraries Include="$([MSBuild]::NormalizePath('$(_ToolChainLibDir)', 'libgcc.a'))" />
+      <_ToolChainLibraries Include="$([MSBuild]::NormalizePath('$(_AndroidLibDir)', 'libc.so'))" />
+      <_ToolChainLibraries Include="$([MSBuild]::NormalizePath('$(_AndroidLibDir)', 'libm.so'))" />
+    </ItemGroup>
+  </Target>
+
+  <Target Condition="'$(TargetOS)' == 'Android'" Name="BundleTestAndroidApp" DependsOnTargets="GenerateRuntimeConfig;_PrepareAndroidAotCompileApp">
     <Error Condition="!Exists('$(MicrosoftNetCoreAppRuntimePackRidDir)')" Text="MicrosoftNetCoreAppRuntimePackRidDir=$(MicrosoftNetCoreAppRuntimePackRidDir) doesn't exist" />
 
     <PropertyGroup>
@@ -80,12 +141,6 @@
 
       <MainLibraryFileName Condition="'$(MainLibraryFileName)' == ''">AndroidTestRunner.dll</MainLibraryFileName>
     </PropertyGroup>
-    <ItemGroup Condition="'$(RunAOTCompilation)' == 'true'">
-      <AotInputAssemblies Include="$(PublishDir)\*.dll">
-        <AotArguments>@(MonoAOTCompilerDefaultAotArguments, ';')</AotArguments>
-        <ProcessArguments>@(MonoAOTCompilerDefaultProcessArguments, ';')</ProcessArguments>
-      </AotInputAssemblies>
-    </ItemGroup>
 
     <WriteLinesToFile File="$(PublishDir)xunit-excludes.txt" Lines="$(XunitExcludesTxtFileContent)" Overwrite="true" />
 
@@ -97,9 +152,12 @@
         CompilerBinaryPath="$(MonoAotCrossCompilerPath)"
         OutputDir="$(_MobileIntermediateOutputPath)"
         Mode="Full"
-        OutputType="AsmOnly"
+        OutputType="Shared"
         Assemblies="@(AotInputAssemblies)"
         AotModulesTablePath="$(BundleDir)\modules.c"
+        ToolChainName="$(_ToolChainName)"
+        ToolChainPrefix="$(_ToolChainPrefix)"
+        ToolChainLibraries="@(_ToolChainLibraries)"
         UseLLVM="$(MonoEnableLLVM)"
         LLVMPath="$(MonoAotCrossDir)">
         <Output TaskParameter="CompiledAssemblies" ItemName="BundleAssemblies" />
