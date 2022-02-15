@@ -1,5 +1,13 @@
 <Project>
   <PropertyGroup>
+    <IsTestProject Condition="'$(IsTestProject)' == ''">true</IsTestProject>
+    <IsFunctionalTest>true</IsFunctionalTest>
+
+    <SkipTestUtilitiesReference>true</SkipTestUtilitiesReference>
+    <SkipXunitTrimmerDescriptor>true</SkipXunitTrimmerDescriptor>
+  </PropertyGroup>
+
+  <PropertyGroup>
     <RunAnalyzers>false</RunAnalyzers>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -15,5 +23,8 @@
     <XHarnessOutput>%XHARNESS_OUT%</XHarnessOutput>
   </PropertyGroup>
 
-  <Import Project="..\Directory.Build.props"/>
+  <Import Condition="'$(IsFunctionalTest)' != 'true'" Project="..\Directory.Build.props"/>
+
+  <!-- Opt-in to libraries build setup -->
+  <Import Condition="'$(IsFunctionalTest)' == 'true'" Project="..\..\libraries\Directory.Build.props" />
 </Project>

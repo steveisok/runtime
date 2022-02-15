@@ -24,15 +24,7 @@
       <_AppleRuntimeConfigFilePath Condition="'$(_AppleRuntimeConfigFilePath)' == ''">$([MSBuild]::NormalizePath($(AppleAppDir), '$(AssemblyName).runtimeconfig.json'))</_AppleRuntimeConfigFilePath>
       <_ParsedRuntimeConfigFilePath Condition="'$(_ParsedRuntimeConfigFilePath)' == ''">$([MSBuild]::NormalizePath($(AppleAppDir), 'runtimeconfig.bin'))</_ParsedRuntimeConfigFilePath>
     </PropertyGroup>
-    <!--<AppleAppDir Condition="'$(AppleAppDir)' == ''">$(OutputPath)</AppleAppDir>
-    
-    <AppleAppBundleDir Condition="'$(AppleAppBundleDir)' == ''">$([MSBuild]::NormalizeDirectory($(OutputPath), 'AppBundle'))</AppleAppBundleDir>
-    
-    <MainLibraryFileName Condition="'$(MainLibraryFileName)' == ''">$(TargetFileName)</MainLibraryFileName>
 
-    <AppleAppDir>$([MSBuild]::NormalizeDirectory($(AppleAppDir)))</AppleAppDir>
-    <AppleAppBundleDir>$([MSBuild]::NormalizeDirectory($(AppleAppBundleDir)))</AppleAppBundleDir>
--->
     <RemoveDir Directories="$(AppleAppBundleDir)" />
   </Target>
 
@@ -123,6 +115,10 @@
   </Target>
 
   <Target Name="_AppleGenerateAppBundle" DependsOnTargets="_AppleGenerateRuntimeConfig">
+    <PropertyGroup>
+      <UseConsoleUITemplate Condition="'$(UseConsoleUITemplate)' == ''">true</UseConsoleUITemplate>
+    </PropertyGroup>
+
     <!-- Run App bundler, it uses AOT libs (if needed), link all native bits, compile simple UI (written in ObjC)
          and produce an app bundle (with xcode project) -->
     <AppleAppBuilderTask
@@ -136,7 +132,8 @@
         ForceInterpreter="$(MonoForceInterpreter)"
         EnableAppSandbox="$(EnableAppSandbox)"
         InvariantGlobalization="$(InvariantGlobalization)"
-        UseConsoleUITemplate="True"
+        UseConsoleUITemplate="$(UseConsoleUITemplate)"
+        NativeMainSource="$(NativeMainSource)"
         GenerateXcodeProject="$(GenerateXcodeProject)"
         GenerateCMakeProject="$(GenerateCMakeProject)"
         BuildAppBundle="$(GenerateXcodeProject)"

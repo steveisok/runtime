@@ -31,8 +31,12 @@
     <Exec Condition="'$(TargetOS)' != 'windows' and '$(OS)' != 'Windows_NT'" Command="chmod +x $(RunScriptOutputPath)" />
   </Target>
 
-  <Import Project="$(RepositoryEngineeringDir)targetingpacks.targets" />
-  <Import Project="..\Directory.Build.targets"/>
+  <Import Condition="'$(IsFunctionalTest)' != 'true'" Project="$(RepositoryEngineeringDir)targetingpacks.targets" />
+
+  <Import Condition="'$(IsFunctionalTest)' != 'true'" Project="..\Directory.Build.targets"/>
+
+  <!-- Opt-in to libraries build setup -->
+  <Import Condition="'$(IsFunctionalTest)' == 'true'" Project="..\..\libraries\Directory.Build.targets" />
 
   <Target Name="PrintRuntimePackLocation" AfterTargets="UpdateTargetingAndRuntimePack">
     <Message Text="Used runtime pack: %(ResolvedRuntimePack.PackageDirectory)" Importance="high" />
