@@ -764,7 +764,7 @@ MINI_OP(OP_BOUNDS_CHECK, "bounds_check", NONE, IREG, IREG)
 /* type checks */
 MINI_OP(OP_ISINST, "isinst", IREG, IREG, NONE)
 MINI_OP(OP_CASTCLASS, "castclass", IREG, IREG, NONE)
-/* get adress of element in a 2D array */
+/* get address of element in a 2D array */
 MINI_OP(OP_LDELEMA2D, "ldelema2d", NONE, NONE, NONE)
 /* inlined small memcpy with constant length */
 MINI_OP(OP_MEMCPY, "memcpy", NONE, NONE, NONE)
@@ -844,6 +844,15 @@ MINI_OP(OP_EXPAND_R4, "expand_r4", XREG, FREG, NONE)
 MINI_OP(OP_EXPAND_I8, "expand_i8", XREG, IREG, NONE)
 MINI_OP(OP_EXPAND_R8, "expand_r8", XREG, FREG, NONE)
 
+#endif
+
+// wasm specific SIMD v128
+
+#if defined(TARGET_WASM)
+MINI_OP(OP_WASM_SIMD_BITMASK, "wasm_bitmask", IREG, XREG, NONE)
+MINI_OP3(OP_WASM_SIMD_SHUFFLE, "wasm_shuffle", XREG, XREG, XREG, XREG)
+MINI_OP(OP_WASM_SIMD_SUM, "wasm_sum", XREG, XREG, NONE)
+MINI_OP(OP_WASM_SIMD_SWIZZLE, "wasm_swizzle", XREG, XREG, XREG)
 #endif
 
 #if defined(TARGET_X86) || defined(TARGET_AMD64) || defined(TARGET_WASM)
@@ -1017,6 +1026,8 @@ MINI_OP(OP_CVTPS2PD, "cvtps2pd", XREG, XREG, NONE)
 MINI_OP(OP_CVTTPD2DQ, "cvttpd2dq", XREG, XREG, NONE)
 MINI_OP(OP_CVTTPS2DQ, "cvttps2dq", XREG, XREG, NONE)
 
+MINI_OP(OP_VECTOR_IABS, "vector_integer_abs", XREG, XREG, NONE)
+
 /* sse 1 */
 /* inst_c1 is target type */
 MINI_OP(OP_SSE_LOADU, "sse_loadu", XREG, XREG, NONE)
@@ -1103,7 +1114,6 @@ MINI_OP(OP_SSE3_MOVSLDUP, "sse3_movsldup", XREG, XREG, NONE)
 MINI_OP(OP_SSE3_MOVDDUP_MEM, "sse3_movddup_mem", XREG, IREG, NONE)
 
 /* ssse 3 */
-MINI_OP(OP_SSSE3_ABS, "ssse3_abs", XREG, XREG, NONE)
 MINI_OP(OP_SSSE3_SHUFFLE, "ssse3_shuffle", XREG, XREG, XREG)
 MINI_OP3(OP_SSSE3_ALIGNR, "ssse3_alignr", XREG, XREG, XREG, IREG)
 
@@ -1343,6 +1353,8 @@ MINI_OP(OP_X86_BSF32,              "x86_bsf32", IREG, IREG, NONE)
 MINI_OP(OP_X86_BSR32,              "x86_bsr32", IREG, IREG, NONE)
 MINI_OP(OP_X86_BSF64,              "x86_bsf64", LREG, LREG, NONE)
 MINI_OP(OP_X86_BSR64,              "x86_bsr64", LREG, LREG, NONE)
+MINI_OP(OP_X86_MOVE_R8_TO_FPSTACK,    "x86_move_r8_to_fpstack", NONE, FREG, NONE)
+MINI_OP(OP_X86_MOVE_R4_TO_FPSTACK,    "x86_move_r4_to_fpstack", NONE, FREG, NONE)
 #endif
 
 #if defined(TARGET_AMD64)
@@ -1382,7 +1394,7 @@ MINI_OP(OP_AMD64_LOADI8_MEMINDEX,        "amd64_loadi8_memindex", IREG, IREG, IR
 MINI_OP(OP_AMD64_SAVE_SP_TO_LMF,         "amd64_save_sp_to_lmf", NONE, NONE, NONE)
 #endif
 
-#if  defined(TARGET_POWERPC)
+#if  defined(TARGET_POWERPC) || defined(TARGET_POWERPC64)
 MINI_OP(OP_PPC_SUBFIC,             "ppc_subfic", IREG, IREG, NONE)
 MINI_OP(OP_PPC_SUBFZE,             "ppc_subfze", IREG, IREG, NONE)
 MINI_OP(OP_PPC_CHECK_FINITE,       "ppc_check_finite", NONE, IREG, NONE)
@@ -1617,9 +1629,6 @@ MINI_OP(OP_ARM64_REVN, "arm64_revn", XREG, XREG, NONE)
 MINI_OP(OP_ARM64_PMULL, "arm64_pmull", XREG, XREG, XREG)
 MINI_OP(OP_ARM64_PMULL2, "arm64_pmull2", XREG, XREG, XREG)
 
-MINI_OP(OP_ARM64_XNEG, "arm64_xneg", XREG, XREG, NONE)
-MINI_OP(OP_ARM64_XNEG_SCALAR, "arm64_xneg_scalar", XREG, XREG, NONE)
-
 MINI_OP(OP_ARM64_SMULL, "arm64_smull", XREG, XREG, XREG)
 MINI_OP(OP_ARM64_SMULL_SCALAR, "arm64_smull_scalar", XREG, XREG, XREG)
 MINI_OP(OP_ARM64_SMULL2, "arm64_smull2", XREG, XREG, XREG)
@@ -1709,10 +1718,7 @@ MINI_OP(OP_ARM64_FCVTL2, "arm64_fcvtl2", XREG, XREG, NONE)
 
 MINI_OP(OP_ARM64_CMTST, "arm64_cmtst", XREG, XREG, XREG)
 
-MINI_OP3(OP_ARM64_BSL, "arm64_bsl", XREG, XREG, XREG, XREG)
 MINI_OP(OP_ARM64_BIC, "arm64_bic", XREG, XREG, XREG)
-
-MINI_OP(OP_ARM64_MVN, "arm64_mvn", XREG, XREG, NONE)
 
 MINI_OP(OP_ARM64_SADD, "arm64_sadd", XREG, XREG, XREG)
 MINI_OP(OP_ARM64_SADD2, "arm64_sadd2", XREG, XREG, XREG)
@@ -1763,3 +1769,14 @@ MINI_OP3(OP_ARM64_SQRDMLSH_BYSCALAR, "arm64_sqrdmlsh_byscalar", XREG, XREG, XREG
 MINI_OP3(OP_ARM64_SQRDMLSH_SCALAR, "arm64_sqrdmlsh_scalar", XREG, XREG, XREG, XREG)
 
 #endif // TARGET_ARM64
+
+#if defined(TARGET_WASM)
+MINI_OP(OP_WASM_ONESCOMPLEMENT, "wasm_onescomplement", XREG, XREG, NONE)
+#endif
+
+#if defined(TARGET_ARM64) || defined(TARGET_AMD64)
+MINI_OP3(OP_BSL,            "bitwise_select", XREG, XREG, XREG, XREG)
+MINI_OP(OP_NEGATION,        "negate", XREG, XREG, NONE)
+MINI_OP(OP_NEGATION_SCALAR, "negate_scalar", XREG, XREG, NONE)
+MINI_OP(OP_ONES_COMPLEMENT, "ones_complement", XREG, XREG, NONE)
+#endif // TARGET_ARM64 || TARGET_AMD64

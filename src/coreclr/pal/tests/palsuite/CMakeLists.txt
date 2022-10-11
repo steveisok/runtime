@@ -6,7 +6,7 @@ include_directories(${PALTESTSUITE_SOURCE_DIR}/common)
 
 # All test will link against these libraries:
 # pthread and m are part of the Android C library (bionic),
-# so we don't need to link them seperately
+# so we don't need to link them separately
 if(NOT CLR_CMAKE_TARGET_ANDROID)
   list(APPEND COMMON_TEST_LIBRARIES pthread)
   list(APPEND COMMON_TEST_LIBRARIES m)
@@ -146,25 +146,6 @@ add_executable_clr(paltests
   c_runtime/free/test1/test1.cpp
   c_runtime/fseek/test1/test1.cpp
   c_runtime/ftell/test1/ftell.cpp
-  c_runtime/fwprintf/test1/test1.cpp
-  c_runtime/fwprintf/test10/test10.cpp
-  c_runtime/fwprintf/test11/test11.cpp
-  c_runtime/fwprintf/test12/test12.cpp
-  c_runtime/fwprintf/test13/test13.cpp
-  c_runtime/fwprintf/test14/test14.cpp
-  c_runtime/fwprintf/test15/test15.cpp
-  c_runtime/fwprintf/test16/test16.cpp
-  c_runtime/fwprintf/test17/test17.cpp
-  c_runtime/fwprintf/test18/test18.cpp
-  c_runtime/fwprintf/test19/test19.cpp
-  c_runtime/fwprintf/test2/test2.cpp
-  c_runtime/fwprintf/test3/test3.cpp
-  c_runtime/fwprintf/test4/test4.cpp
-  c_runtime/fwprintf/test5/test5.cpp
-  c_runtime/fwprintf/test6/test6.cpp
-  c_runtime/fwprintf/test7/test7.cpp
-  c_runtime/fwprintf/test8/test8.cpp
-  c_runtime/fwprintf/test9/test9.cpp
   c_runtime/fwrite/test1/test1.cpp
   c_runtime/getenv/test1/test1.cpp
   c_runtime/getenv/test2/test2.cpp
@@ -174,11 +155,9 @@ add_executable_clr(paltests
   c_runtime/isalnum/test1/test1.cpp
   c_runtime/isalpha/test1/test1.cpp
   c_runtime/isdigit/test1/test1.cpp
-  c_runtime/islower/test1/test1.cpp
   c_runtime/isprint/test1/isprint.cpp
   c_runtime/isprint/test2/test2.cpp
   c_runtime/isspace/test1/test1.cpp
-  c_runtime/isupper/test1/test1.cpp
   c_runtime/iswdigit/test1/test1.cpp
   #c_runtime/iswprint/test1/test1.cpp
   c_runtime/iswspace/test1/test1.cpp
@@ -272,14 +251,12 @@ add_executable_clr(paltests
   c_runtime/strchr/test1/test1.cpp
   c_runtime/strcmp/test1/test1.cpp
   c_runtime/strcpy/test1/test1.cpp
-  c_runtime/strcspn/test1/test1.cpp
   c_runtime/strlen/test1/test1.cpp
   c_runtime/strncat/test1/test1.cpp
   c_runtime/strncmp/test1/test1.cpp
   c_runtime/strncpy/test1/test1.cpp
   c_runtime/strpbrk/test1/test1.cpp
   c_runtime/strrchr/test1/test1.cpp
-  c_runtime/strspn/test1/test1.cpp
   c_runtime/strstr/test1/test1.cpp
   c_runtime/strtod/test1/test1.cpp
   c_runtime/strtod/test2/test2.cpp
@@ -303,23 +280,6 @@ add_executable_clr(paltests
   c_runtime/swprintf/test7/test7.cpp
   c_runtime/swprintf/test8/test8.cpp
   c_runtime/swprintf/test9/test9.cpp
-  c_runtime/swscanf/test1/test1.cpp
-  c_runtime/swscanf/test10/test10.cpp
-  c_runtime/swscanf/test11/test11.cpp
-  c_runtime/swscanf/test12/test12.cpp
-  c_runtime/swscanf/test13/test13.cpp
-  c_runtime/swscanf/test14/test14.cpp
-  c_runtime/swscanf/test15/test15.cpp
-  c_runtime/swscanf/test16/test16.cpp
-  c_runtime/swscanf/test17/test17.cpp
-  c_runtime/swscanf/test2/test2.cpp
-  c_runtime/swscanf/test3/test3.cpp
-  c_runtime/swscanf/test4/test4.cpp
-  c_runtime/swscanf/test5/test5.cpp
-  c_runtime/swscanf/test6/test6.cpp
-  c_runtime/swscanf/test7/test7.cpp
-  c_runtime/swscanf/test8/test8.cpp
-  c_runtime/swscanf/test9/test9.cpp
   c_runtime/tan/test1/test1.cpp
   c_runtime/tanf/test1/test1.cpp
   c_runtime/tanh/test1/test1.cpp
@@ -421,8 +381,6 @@ add_executable_clr(paltests
   c_runtime/wcstoul/test4/test4.cpp
   c_runtime/wcstoul/test5/test5.cpp
   c_runtime/wcstoul/test6/test6.cpp
-  c_runtime/wprintf/test1/test1.cpp
-  c_runtime/wprintf/test2/test2.cpp
   c_runtime/_alloca/test1/test1.cpp
   c_runtime/_fdopen/test1/test1.cpp
   c_runtime/_finite/test1/test1.cpp
@@ -758,8 +716,6 @@ add_executable_clr(paltests
   miscellaneous/GetSystemInfo/test1/test.cpp
   miscellaneous/GetTickCount/test1/test.cpp
   miscellaneous/GlobalMemoryStatusEx/test1/test.cpp
-  miscellaneous/InterlockedBit/test1/test.cpp
-  miscellaneous/InterlockedBit/test2/test.cpp
   miscellaneous/InterlockedCompareExchange/test1/test.cpp
   miscellaneous/InterlockedCompareExchange/test2/test.cpp
   miscellaneous/InterlockedCompareExchange64/test1/test.cpp
@@ -854,7 +810,6 @@ add_executable_clr(paltests
   threading/GetCurrentThreadId/test1/threadId.cpp
   threading/GetExitCodeProcess/test1/childProcess.cpp
   threading/GetExitCodeProcess/test1/test1.cpp
-  threading/GetProcessTimes/test2/test2.cpp
   threading/GetThreadTimes/test1/test1.cpp
   threading/NamedMutex/test1/namedmutex.cpp
   threading/NamedMutex/test1/nopal.cpp

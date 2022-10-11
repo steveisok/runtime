@@ -953,22 +953,19 @@ namespace System.Xml
 
             // make sure we have at least 4 bytes to detect the encoding (no preamble of System.Text supported encoding is longer than 4 bytes)
             _ps.bytePos = 0;
-            while (_ps.bytesUsed < 4 && _ps.bytes.Length - _ps.bytesUsed > 0)
+            if (_ps.bytesUsed < 4 && _ps.bytes.Length - _ps.bytesUsed > 0)
             {
-                int read = await stream.ReadAsync(_ps.bytes.AsMemory(_ps.bytesUsed)).ConfigureAwait(false);
-                if (read == 0)
+                int bytesToRead = Math.Min(4, _ps.bytes.Length - _ps.bytesUsed);
+                int read = await stream.ReadAtLeastAsync(_ps.bytes.AsMemory(_ps.bytesUsed), bytesToRead, throwOnEndOfStream: false).ConfigureAwait(false);
+                if (read < bytesToRead)
                 {
                     _ps.isStreamEof = true;
-                    break;
                 }
                 _ps.bytesUsed += read;
             }
 
             // detect & setup encoding
-            if (encoding == null)
-            {
-                encoding = DetectEncoding();
-            }
+            encoding ??= DetectEncoding();
             SetupEncoding(encoding);
 
             // eat preamble
@@ -1128,7 +1125,7 @@ namespace System.Xml
                     int copyCharsCount = _ps.charsUsed - _ps.charPos;
                     if (copyCharsCount < charsLen - 1)
                     {
-                        _ps.lineStartPos = _ps.lineStartPos - _ps.charPos;
+                        _ps.lineStartPos -= _ps.charPos;
                         if (copyCharsCount > 0)
                         {
                             BlockCopyChars(_ps.chars, _ps.charPos, _ps.chars, 0, copyCharsCount);
@@ -1224,7 +1221,7 @@ namespace System.Xml
                 }
             }
 
-            if (!XmlConvert.StrEqual(_ps.chars, _ps.charPos, 5, XmlDeclarationBeginning) ||
+            if (!_ps.chars.AsSpan(_ps.charPos).StartsWith(XmlDeclarationBeginning) ||
                  XmlCharType.IsNameSingleChar(_ps.chars[_ps.charPos + 5]))
             {
                 goto NoXmlDecl;
@@ -1237,7 +1234,7 @@ namespace System.Xml
             }
             _ps.charPos += 5;
 
-            // parsing of text declarations cannot change global stringBuidler or curNode as we may be in the middle of a text node
+            // parsing of text declarations cannot change global stringBuilder or curNode as we may be in the middle of a text node
             Debug.Assert(_stringBuilder.Length == 0 || isTextDecl);
             StringBuilder sb = isTextDecl ? new StringBuilder() : _stringBuilder;
 
@@ -1321,10 +1318,10 @@ namespace System.Xml
                 int nameEndPos = await ParseNameAsync().ConfigureAwait(false);
 
                 NodeData? attr = null;
-                switch (_ps.chars[_ps.charPos])
+                switch (_ps.chars.AsSpan(_ps.charPos, nameEndPos - _ps.charPos))
                 {
-                    case 'v':
-                        if (XmlConvert.StrEqual(_ps.chars, _ps.charPos, nameEndPos - _ps.charPos, "version") && xmlDeclState == 0)
+                    case "version":
+                        if (xmlDeclState == 0)
                         {
                             if (!isTextDecl)
                             {
@@ -1333,9 +1330,8 @@ namespace System.Xml
                             break;
                         }
                         goto default;
-                    case 'e':
-                        if (XmlConvert.StrEqual(_ps.chars, _ps.charPos, nameEndPos - _ps.charPos, "encoding") &&
-                            (xmlDeclState == 1 || (isTextDecl && xmlDeclState == 0)))
+                    case "encoding":
+                        if (xmlDeclState == 1 || (isTextDecl && xmlDeclState == 0))
                         {
                             if (!isTextDecl)
                             {
@@ -1345,14 +1341,10 @@ namespace System.Xml
                             break;
                         }
                         goto default;
-                    case 's':
-                        if (XmlConvert.StrEqual(_ps.chars, _ps.charPos, nameEndPos - _ps.charPos, "standalone") &&
-                             (xmlDeclState == 1 || xmlDeclState == 2) && !isTextDecl)
+                    case "standalone":
+                        if ((xmlDeclState == 1 || xmlDeclState == 2) && !isTextDecl)
                         {
-                            if (!isTextDecl)
-                            {
-                                attr = AddAttributeNoChecks("standalone", 1);
-                            }
+                            attr = AddAttributeNoChecks("standalone", 1);
                             xmlDeclState = 2;
                             break;
                         }
@@ -1416,7 +1408,7 @@ namespace System.Xml
                         // version
                         case 0:
                             // VersionNum  ::=  '1.0'        (XML Fourth Edition and earlier)
-                            if (XmlConvert.StrEqual(_ps.chars, _ps.charPos, pos - _ps.charPos, "1.0"))
+                            if (_ps.chars.AsSpan(_ps.charPos).StartsWith("1.0"))
                             {
                                 if (!isTextDecl)
                                 {
@@ -1440,18 +1432,18 @@ namespace System.Xml
                             xmlDeclState = 2;
                             break;
                         case 2:
-                            if (XmlConvert.StrEqual(_ps.chars, _ps.charPos, pos - _ps.charPos, "yes"))
+                            switch (_ps.chars.AsSpan(_ps.charPos, pos - _ps.charPos))
                             {
-                                _standalone = true;
-                            }
-                            else if (XmlConvert.StrEqual(_ps.chars, _ps.charPos, pos - _ps.charPos, "no"))
-                            {
-                                _standalone = false;
-                            }
-                            else
-                            {
-                                Debug.Assert(!isTextDecl);
-                                Throw(SR.Xml_InvalidXmlDecl, _ps.LineNo, _ps.LinePos - 1);
+                                case "yes":
+                                    _standalone = true;
+                                    break;
+                                case "no":
+                                    _standalone = false;
+                                    break;
+                                default:
+                                    Debug.Assert(!isTextDecl);
+                                    Throw(SR.Xml_InvalidXmlDecl, _ps.LineNo, _ps.LinePos - 1);
+                                    break;
                             }
                             if (!isTextDecl)
                             {
@@ -1567,7 +1559,7 @@ namespace System.Xml
                                     {
                                         return ParseDocumentContentAsync_ReadData(needMoreChars);
                                     }
-                                    if (XmlConvert.StrEqual(chars, pos, 6, "CDATA["))
+                                    if (chars.AsSpan(pos).StartsWith("CDATA["))
                                     {
                                         _ps.charPos = pos + 6;
                                         return ParseCDataAsync().CallBoolTaskFuncWhenFinishAsync(thisRef => thisRef.ParseDocumentContentAsync_CData(), this);
@@ -1821,7 +1813,7 @@ namespace System.Xml
                                     {
                                         return ParseElementContent_ReadData();
                                     }
-                                    if (XmlConvert.StrEqual(chars, pos, 6, "CDATA["))
+                                    if (chars.AsSpan(pos).StartsWith("CDATA["))
                                     {
                                         _ps.charPos = pos + 6;
                                         return ParseCDataAsync().ReturnTrueTaskWhenFinishAsync();
@@ -2016,7 +2008,7 @@ namespace System.Xml
             {
                 int startPos = _ps.charPos;
                 int prefixLen = colonPos - startPos;
-                if (prefixLen == _lastPrefix.Length && XmlConvert.StrEqual(chars, startPos, prefixLen, _lastPrefix))
+                if (prefixLen == _lastPrefix.Length && chars.AsSpan(startPos).StartsWith(_lastPrefix))
                 {
                     _curNode.SetNamedNode(XmlNodeType.Element,
                                           _nameTable.Add(chars, colonPos + 1, pos - colonPos - 1),
@@ -2158,7 +2150,7 @@ namespace System.Xml
             char[] chars = _ps.chars;
             if (startTagNode.prefix.Length == 0)
             {
-                if (!XmlConvert.StrEqual(chars, _ps.charPos, locLen, startTagNode.localName))
+                if (!chars.AsSpan(_ps.charPos).StartsWith(startTagNode.localName))
                 {
                     return ThrowTagMismatchAsync(startTagNode);
                 }
@@ -2167,9 +2159,9 @@ namespace System.Xml
             else
             {
                 int colonPos = _ps.charPos + prefLen;
-                if (!XmlConvert.StrEqual(chars, _ps.charPos, prefLen, startTagNode.prefix) ||
+                if (!chars.AsSpan(_ps.charPos).StartsWith(startTagNode.prefix) ||
                         chars[colonPos] != ':' ||
-                        !XmlConvert.StrEqual(chars, colonPos + 1, locLen, startTagNode.localName))
+                        !chars.AsSpan(colonPos + 1).StartsWith(startTagNode.localName))
                 {
                     return ThrowTagMismatchAsync(startTagNode);
                 }
@@ -3926,7 +3918,7 @@ namespace System.Xml
                 {
                     await PushExternalEntityAsync(entity).ConfigureAwait(false);
                     _curNode.entityId = _ps.entityId;
-                    return (isInAttributeValue && _validatingReaderCompatFlag) ? EntityType.ExpandedInAttribute : EntityType.Expanded;
+                    return EntityType.Expanded;
                 }
             }
             else
@@ -4473,7 +4465,7 @@ namespace System.Xml
                     Throw(SR.Xml_UnexpectedEOF, "DOCTYPE");
                 }
             }
-            if (!XmlConvert.StrEqual(_ps.chars, _ps.charPos, 7, "DOCTYPE"))
+            if (!_ps.chars.AsSpan(_ps.charPos).StartsWith("DOCTYPE"))
             {
                 ThrowUnexpectedToken((!_rootElementParsed && _dtdInfo == null) ? "DOCTYPE" : "<!--");
             }
@@ -4557,7 +4549,7 @@ namespace System.Xml
                     }
                 }
                 // check 'PUBLIC'
-                if (!XmlConvert.StrEqual(_ps.chars, _ps.charPos, 6, "PUBLIC"))
+                if (!_ps.chars.AsSpan(_ps.charPos).StartsWith("PUBLIC"))
                 {
                     ThrowUnexpectedToken("PUBLIC");
                 }
@@ -4594,7 +4586,7 @@ namespace System.Xml
                     }
                 }
                 // check 'SYSTEM'
-                if (!XmlConvert.StrEqual(_ps.chars, _ps.charPos, 6, "SYSTEM"))
+                if (!_ps.chars.AsSpan(_ps.charPos).StartsWith("SYSTEM"))
                 {
                     ThrowUnexpectedToken("SYSTEM");
                 }
@@ -4911,10 +4903,7 @@ namespace System.Xml
                                 int tmp2 = pos - _ps.charPos;
                                 if (tmp2 > 0)
                                 {
-                                    if (sb != null)
-                                    {
-                                        sb.Append(_ps.chars, _ps.charPos, tmp2);
-                                    }
+                                    sb?.Append(_ps.chars, _ps.charPos, tmp2);
                                     _ps.charPos = pos;
                                     wsCount += tmp2;
                                 }
@@ -4927,10 +4916,7 @@ namespace System.Xml
                 int tmp3 = pos - _ps.charPos;
                 if (tmp3 > 0)
                 {
-                    if (sb != null)
-                    {
-                        sb.Append(_ps.chars, _ps.charPos, tmp3);
-                    }
+                    sb?.Append(_ps.chars, _ps.charPos, tmp3);
                     _ps.charPos = pos;
                     wsCount += tmp3;
                 }
@@ -5199,7 +5185,7 @@ namespace System.Xml
 
             if (entityName == null)
             {
-                ThrowWithoutLineInfo(SR.Xml_CannotResolveExternalSubset, new string?[] { (publicId != null ? publicId : string.Empty), systemId }, null);
+                ThrowWithoutLineInfo(SR.Xml_CannotResolveExternalSubset, new string?[] { publicId ?? string.Empty, systemId }, null);
             }
             else
             {

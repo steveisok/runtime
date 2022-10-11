@@ -53,6 +53,13 @@ CorInfoInline interceptor_ICJI::canInline(
     return original_ICorJitInfo->canInline(callerHnd, calleeHnd);
 }
 
+void interceptor_ICJI::beginInlining(
+          CORINFO_METHOD_HANDLE inlinerHnd,
+          CORINFO_METHOD_HANDLE inlineeHnd)
+{
+    original_ICorJitInfo->beginInlining(inlinerHnd, inlineeHnd);
+}
+
 void interceptor_ICJI::reportInliningDecision(
           CORINFO_METHOD_HANDLE inlinerHnd,
           CORINFO_METHOD_HANDLE inlineeHnd,
@@ -270,6 +277,15 @@ int interceptor_ICJI::getStringLiteral(
     return original_ICorJitInfo->getStringLiteral(module, metaTOK, buffer, bufferSize);
 }
 
+size_t interceptor_ICJI::printObjectDescription(
+          void* handle,
+          char* buffer,
+          size_t bufferSize,
+          size_t* pRequiredBufferSize)
+{
+    return original_ICorJitInfo->printObjectDescription(handle, buffer, bufferSize, pRequiredBufferSize);
+}
+
 CorInfoType interceptor_ICJI::asCorInfoType(
           CORINFO_CLASS_HANDLE cls)
 {
@@ -460,6 +476,24 @@ CorInfoHelpFunc interceptor_ICJI::getUnBoxHelper(
           CORINFO_CLASS_HANDLE cls)
 {
     return original_ICorJitInfo->getUnBoxHelper(cls);
+}
+
+void* interceptor_ICJI::getRuntimeTypePointer(
+          CORINFO_CLASS_HANDLE cls)
+{
+    return original_ICorJitInfo->getRuntimeTypePointer(cls);
+}
+
+bool interceptor_ICJI::isObjectImmutable(
+          void* objPtr)
+{
+    return original_ICorJitInfo->isObjectImmutable(objPtr);
+}
+
+CORINFO_CLASS_HANDLE interceptor_ICJI::getObjectType(
+          void* objPtr)
+{
+    return original_ICorJitInfo->getObjectType(objPtr);
 }
 
 bool interceptor_ICJI::getReadyToRunHelper(
@@ -688,6 +722,15 @@ void interceptor_ICJI::setVars(
     original_ICorJitInfo->setVars(ftn, cVars, vars);
 }
 
+void interceptor_ICJI::reportRichMappings(
+          ICorDebugInfo::InlineTreeNode* inlineTreeNodes,
+          uint32_t numInlineTreeNodes,
+          ICorDebugInfo::RichOffsetMapping* mappings,
+          uint32_t numMappings)
+{
+    original_ICorJitInfo->reportRichMappings(inlineTreeNodes, numInlineTreeNodes, mappings, numMappings);
+}
+
 void* interceptor_ICJI::allocateArray(
           size_t cBytes)
 {
@@ -712,6 +755,14 @@ CorInfoTypeWithMod interceptor_ICJI::getArgType(
           CORINFO_CLASS_HANDLE* vcTypeRet)
 {
     return original_ICorJitInfo->getArgType(sig, args, vcTypeRet);
+}
+
+int interceptor_ICJI::getExactClasses(
+          CORINFO_CLASS_HANDLE baseType,
+          int maxExactClasses,
+          CORINFO_CLASS_HANDLE* exactClsRet)
+{
+    return original_ICorJitInfo->getExactClasses(baseType, maxExactClasses, exactClsRet);
 }
 
 CORINFO_CLASS_HANDLE interceptor_ICJI::getArgClass(
@@ -1002,6 +1053,14 @@ void* interceptor_ICJI::getFieldAddress(
     return original_ICorJitInfo->getFieldAddress(field, ppIndirection);
 }
 
+bool interceptor_ICJI::getReadonlyStaticFieldValue(
+          CORINFO_FIELD_HANDLE field,
+          uint8_t* buffer,
+          int bufferSize)
+{
+    return original_ICorJitInfo->getReadonlyStaticFieldValue(field, buffer, bufferSize);
+}
+
 CORINFO_CLASS_HANDLE interceptor_ICJI::getStaticFieldCurrentClass(
           CORINFO_FIELD_HANDLE field,
           bool* pIsSpeculative)
@@ -1215,12 +1274,5 @@ uint32_t interceptor_ICJI::getJitFlags(
           uint32_t sizeInBytes)
 {
     return original_ICorJitInfo->getJitFlags(flags, sizeInBytes);
-}
-
-bool interceptor_ICJI::doesFieldBelongToClass(
-          CORINFO_FIELD_HANDLE fldHnd,
-          CORINFO_CLASS_HANDLE cls)
-{
-    return original_ICorJitInfo->doesFieldBelongToClass(fldHnd, cls);
 }
 

@@ -51,7 +51,8 @@ const SimdAsHWIntrinsicInfo& SimdAsHWIntrinsicInfo::lookup(NamedIntrinsic id)
 //
 // Return Value:
 //    The NamedIntrinsic associated with methodName and classId
-NamedIntrinsic SimdAsHWIntrinsicInfo::lookupId(CORINFO_SIG_INFO* sig,
+NamedIntrinsic SimdAsHWIntrinsicInfo::lookupId(Compiler*         comp,
+                                               CORINFO_SIG_INFO* sig,
                                                const char*       className,
                                                const char*       methodName,
                                                const char*       enclosingClassName,
@@ -71,6 +72,11 @@ NamedIntrinsic SimdAsHWIntrinsicInfo::lookupId(CORINFO_SIG_INFO* sig,
     {
         numArgs++;
         isInstanceMethod = true;
+    }
+
+    if (strcmp(methodName, "get_IsHardwareAccelerated") == 0)
+    {
+        return comp->IsBaselineSimdIsaSupported() ? NI_IsSupported_True : NI_IsSupported_False;
     }
 
     for (int i = 0; i < (NI_SIMD_AS_HWINTRINSIC_END - NI_SIMD_AS_HWINTRINSIC_START - 1); i++)
@@ -178,6 +184,12 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
         return nullptr;
     }
 
+    // NextCallRetAddr requires a CALL, so return nullptr.
+    if (info.compHasNextCallRetAddr)
+    {
+        return nullptr;
+    }
+
     CORINFO_CLASS_HANDLE argClass         = NO_CLASS_HANDLE;
     var_types            retType          = JITtype2varType(sig->retType);
     CorInfoType          simdBaseJitType  = CORINFO_TYPE_UNDEF;
@@ -205,8 +217,15 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
     }
     else if (numArgs != 0)
     {
-        argClass        = info.compCompHnd->getArgClass(sig, sig->args);
-        simdBaseJitType = getBaseJitTypeAndSizeOfSIMDType(argClass, &simdSize);
+        if (sig->hasThis() && (retType == TYP_VOID))
+        {
+            simdBaseJitType = strip(info.compCompHnd->getArgType(sig, sig->args, &argClass));
+        }
+        else
+        {
+            argClass        = info.compCompHnd->getArgClass(sig, sig->args);
+            simdBaseJitType = getBaseJitTypeAndSizeOfSIMDType(argClass, &simdSize);
+        }
     }
 
     if (sig->hasThis())
@@ -304,6 +323,12 @@ GenTree* Compiler::impSimdAsHWIntrinsic(NamedIntrinsic        intrinsic,
 
         case 2:
         {
+            if (SimdAsHWIntrinsicInfo::SpillSideEffectsOp1(intrinsic))
+            {
+                impSpillSideEffect(true, verCurrentState.esStackDepth -
+                                             2 DEBUGARG("Spilling op1 side effects for SimdAsHWIntrinsic"));
+            }
+
             CORINFO_ARG_LIST_HANDLE arg2 = isInstanceMethod ? argList : info.compCompHnd->getArgNext(argList);
             argType                      = JITtype2varType(strip(info.compCompHnd->getArgType(sig, arg2, &argClass)));
             op2                          = getArgForHWIntrinsic(argType, argClass);
@@ -538,47 +563,10 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic       intrinsic,
             switch (intrinsic)
             {
 #if defined(TARGET_XARCH)
-                case NI_Vector2_get_One:
-                case NI_Vector3_get_One:
-                case NI_Vector4_get_One:
-                case NI_VectorT128_get_One:
-                case NI_VectorT256_get_One:
+                case NI_VectorT128_get_AllBitsSet:
+                case NI_VectorT256_get_AllBitsSet:
                 {
-                    switch (simdBaseType)
-                    {
-                        case TYP_BYTE:
-                        case TYP_UBYTE:
-                        case TYP_SHORT:
-                        case TYP_USHORT:
-                        case TYP_INT:
-                        case TYP_UINT:
-                        {
-                            op1 = gtNewIconNode(1, TYP_INT);
-                            break;
-                        }
-
-                        case TYP_LONG:
-                        case TYP_ULONG:
-                        {
-                            op1 = gtNewLconNode(1);
-                            break;
-                        }
-
-                        case TYP_FLOAT:
-                        case TYP_DOUBLE:
-                        {
-                            op1 = gtNewDconNode(1.0, simdBaseType);
-                            break;
-                        }
-
-                        default:
-                        {
-                            unreached();
-                        }
-                    }
-
-                    return gtNewSimdCreateBroadcastNode(retType, op1, simdBaseJitType, simdSize,
-                                                        /* isSimdAsHWIntrinsic */ true);
+                    return gtNewAllBitsSetConNode(retType);
                 }
 
                 case NI_VectorT128_get_Count:
@@ -588,36 +576,73 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic       intrinsic,
                     countNode->gtFlags |= GTF_ICON_SIMD_COUNT;
                     return countNode;
                 }
-#elif defined(TARGET_ARM64)
+
                 case NI_Vector2_get_One:
                 case NI_Vector3_get_One:
                 case NI_Vector4_get_One:
                 case NI_VectorT128_get_One:
+                case NI_VectorT256_get_One:
                 {
+                    GenTreeVecCon* vecCon     = gtNewVconNode(retType);
+                    uint32_t       simdLength = getSIMDVectorLength(simdSize, simdBaseType);
+
                     switch (simdBaseType)
                     {
                         case TYP_BYTE:
                         case TYP_UBYTE:
+                        {
+                            for (uint32_t index = 0; index < simdLength; index++)
+                            {
+                                vecCon->gtSimd32Val.u8[index] = 1;
+                            }
+                            break;
+                        }
+
                         case TYP_SHORT:
                         case TYP_USHORT:
+                        {
+                            for (uint32_t index = 0; index < simdLength; index++)
+                            {
+                                vecCon->gtSimd32Val.u16[index] = 1;
+                            }
+                            break;
+                        }
+
                         case TYP_INT:
                         case TYP_UINT:
                         {
-                            op1 = gtNewIconNode(1, TYP_INT);
+                            for (uint32_t index = 0; index < simdLength; index++)
+                            {
+                                vecCon->gtSimd32Val.u32[index] = 1;
+                            }
                             break;
                         }
 
                         case TYP_LONG:
                         case TYP_ULONG:
                         {
-                            op1 = gtNewLconNode(1);
+                            for (uint32_t index = 0; index < simdLength; index++)
+                            {
+                                vecCon->gtSimd32Val.u64[index] = 1;
+                            }
                             break;
                         }
 
                         case TYP_FLOAT:
+                        {
+                            for (uint32_t index = 0; index < simdLength; index++)
+                            {
+                                vecCon->gtSimd32Val.f32[index] = 1.0f;
+                            }
+                            break;
+                        }
+
                         case TYP_DOUBLE:
                         {
-                            op1 = gtNewDconNode(1.0, simdBaseType);
+                            for (uint32_t index = 0; index < simdLength; index++)
+                            {
+                                vecCon->gtSimd32Val.f64[index] = 1.0;
+                            }
                             break;
                         }
 
@@ -627,8 +652,21 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic       intrinsic,
                         }
                     }
 
-                    return gtNewSimdCreateBroadcastNode(retType, op1, simdBaseJitType, simdSize,
-                                                        /* isSimdAsHWIntrinsic */ true);
+                    return vecCon;
+                }
+
+                case NI_Vector2_get_Zero:
+                case NI_Vector3_get_Zero:
+                case NI_Vector4_get_Zero:
+                case NI_VectorT128_get_Zero:
+                case NI_VectorT256_get_Zero:
+                {
+                    return gtNewZeroConNode(retType);
+                }
+#elif defined(TARGET_ARM64)
+                case NI_VectorT128_get_AllBitsSet:
+                {
+                    return gtNewAllBitsSetConNode(retType);
                 }
 
                 case NI_VectorT128_get_Count:
@@ -636,6 +674,91 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic       intrinsic,
                     GenTreeIntCon* countNode = gtNewIconNode(getSIMDVectorLength(simdSize, simdBaseType), TYP_INT);
                     countNode->gtFlags |= GTF_ICON_SIMD_COUNT;
                     return countNode;
+                }
+
+                case NI_Vector2_get_One:
+                case NI_Vector3_get_One:
+                case NI_Vector4_get_One:
+                case NI_VectorT128_get_One:
+                {
+                    GenTreeVecCon* vecCon     = gtNewVconNode(retType);
+                    uint32_t       simdLength = getSIMDVectorLength(simdSize, simdBaseType);
+
+                    switch (simdBaseType)
+                    {
+                        case TYP_BYTE:
+                        case TYP_UBYTE:
+                        {
+                            for (uint32_t index = 0; index < simdLength; index++)
+                            {
+                                vecCon->gtSimd16Val.u8[index] = 1;
+                            }
+                            break;
+                        }
+
+                        case TYP_SHORT:
+                        case TYP_USHORT:
+                        {
+                            for (uint32_t index = 0; index < simdLength; index++)
+                            {
+                                vecCon->gtSimd16Val.u16[index] = 1;
+                            }
+                            break;
+                        }
+
+                        case TYP_INT:
+                        case TYP_UINT:
+                        {
+                            for (uint32_t index = 0; index < simdLength; index++)
+                            {
+                                vecCon->gtSimd16Val.u32[index] = 1;
+                            }
+                            break;
+                        }
+
+                        case TYP_LONG:
+                        case TYP_ULONG:
+                        {
+                            for (uint32_t index = 0; index < simdLength; index++)
+                            {
+                                vecCon->gtSimd16Val.u64[index] = 1;
+                            }
+                            break;
+                        }
+
+                        case TYP_FLOAT:
+                        {
+                            for (uint32_t index = 0; index < simdLength; index++)
+                            {
+                                vecCon->gtSimd16Val.f32[index] = 1.0f;
+                            }
+                            break;
+                        }
+
+                        case TYP_DOUBLE:
+                        {
+                            for (uint32_t index = 0; index < simdLength; index++)
+                            {
+                                vecCon->gtSimd16Val.f64[index] = 1.0;
+                            }
+                            break;
+                        }
+
+                        default:
+                        {
+                            unreached();
+                        }
+                    }
+
+                    return vecCon;
+                }
+
+                case NI_Vector2_get_Zero:
+                case NI_Vector3_get_Zero:
+                case NI_Vector4_get_Zero:
+                case NI_VectorT128_get_Zero:
+                {
+                    return gtNewZeroConNode(retType);
                 }
 #else
 #error Unsupported platform
@@ -811,13 +934,32 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic       intrinsic,
 
         case 2:
         {
+            if (SimdAsHWIntrinsicInfo::SpillSideEffectsOp1(intrinsic))
+            {
+                impSpillSideEffect(true, verCurrentState.esStackDepth -
+                                             (newobjThis == nullptr ? 2 : 1)DEBUGARG(
+                                                 "Spilling op1 side effects for SimdAsHWIntrinsic"));
+            }
+
             CORINFO_ARG_LIST_HANDLE arg2 = isInstanceMethod ? argList : info.compCompHnd->getArgNext(argList);
             argType                      = JITtype2varType(strip(info.compCompHnd->getArgType(sig, arg2, &argClass)));
             op2                          = getArgForHWIntrinsic(argType, argClass);
 
-            argType = isInstanceMethod ? simdType
-                                       : JITtype2varType(strip(info.compCompHnd->getArgType(sig, argList, &argClass)));
-            op1 = getArgForHWIntrinsic(argType, argClass, isInstanceMethod, newobjThis);
+            bool implicitConstructor = isInstanceMethod && (newobjThis == nullptr) && (retType == TYP_VOID);
+
+            if (implicitConstructor)
+            {
+                op1 = getArgForHWIntrinsic(TYP_BYREF, argClass, isInstanceMethod, newobjThis);
+            }
+            else
+            {
+                argType = isInstanceMethod
+                              ? simdType
+                              : JITtype2varType(strip(info.compCompHnd->getArgType(sig, argList, &argClass)));
+
+                op1 = getArgForHWIntrinsic(argType, (newobjThis != nullptr) ? clsHnd : argClass, isInstanceMethod,
+                                           newobjThis);
+            }
 
             assert(!SimdAsHWIntrinsicInfo::NeedsOperandsSwapped(intrinsic));
 
@@ -849,7 +991,7 @@ GenTree* Compiler::impSimdAsHWIntrinsicSpecial(NamedIntrinsic       intrinsic,
                 case NI_Vector3_op_Division:
                 {
                     // Vector2/3 div: since the top-most elements will be zero, we end up
-                    // perfoming 0/0 which is a NAN. Therefore, post division we need to set the
+                    // performing 0/0 which is a NAN. Therefore, post division we need to set the
                     // top-most elements to zero. This is achieved by left logical shift followed
                     // by right logical shift of the result.
 

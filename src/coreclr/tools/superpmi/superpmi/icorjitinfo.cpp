@@ -100,6 +100,11 @@ CorInfoInline MyICJI::canInline(CORINFO_METHOD_HANDLE callerHnd,    /* IN  */
     return result;
 }
 
+void MyICJI::beginInlining(CORINFO_METHOD_HANDLE inlinerHnd,
+                           CORINFO_METHOD_HANDLE inlineeHnd)
+{
+    // do nothing
+}
 // Reports whether or not a method can be inlined, and why.  canInline is responsible for reporting all
 // inlining results when it returns INLINE_FAIL and INLINE_NEVER.  All other results are reported by the
 // JIT.
@@ -383,6 +388,16 @@ int MyICJI::getStringLiteral(CORINFO_MODULE_HANDLE module,    /* IN  */
     return jitInstance->mc->repGetStringLiteral(module, metaTOK, buffer, bufferSize);
 }
 
+size_t MyICJI::printObjectDescription(void*  handle,              /* IN  */
+                                      char*  buffer,              /* OUT */
+                                      size_t bufferSize,          /* IN  */
+                                      size_t* pRequiredBufferSize /* OUT */
+                                     )
+{
+    jitInstance->mc->cr->AddCall("printObjectDescription");
+    return jitInstance->mc->repPrintObjectDescription(handle, buffer, bufferSize, pRequiredBufferSize);
+}
+
 /**********************************************************************************/
 //
 // ICorClassInfo
@@ -433,7 +448,7 @@ CORINFO_CLASS_HANDLE MyICJI::getTypeInstantiationArgument(CORINFO_CLASS_HANDLE c
 // was truncated when copied to the buffer.
 //
 // Operation:
-// 
+//
 // On entry, `*pnBufLen` specifies the size of the buffer pointed to by `*ppBuf` as a count of characters.
 // There are two cases:
 // 1. If the size is zero, the function computes the length of the representation and returns that.
@@ -655,6 +670,27 @@ CorInfoHelpFunc MyICJI::getUnBoxHelper(CORINFO_CLASS_HANDLE cls)
 {
     jitInstance->mc->cr->AddCall("getUnBoxHelper");
     CorInfoHelpFunc result = jitInstance->mc->repGetUnBoxHelper(cls);
+    return result;
+}
+
+void* MyICJI::getRuntimeTypePointer(CORINFO_CLASS_HANDLE cls)
+{
+    jitInstance->mc->cr->AddCall("getRuntimeTypePointer");
+    void* result = jitInstance->mc->repGetRuntimeTypePointer(cls);
+    return result;
+}
+
+bool MyICJI::isObjectImmutable(void* objPtr)
+{
+    jitInstance->mc->cr->AddCall("isObjectImmutable");
+    bool result = jitInstance->mc->repIsObjectImmutable(objPtr);
+    return result;
+}
+
+CORINFO_CLASS_HANDLE MyICJI::getObjectType(void* objPtr)
+{
+    jitInstance->mc->cr->AddCall("getObjectType");
+    CORINFO_CLASS_HANDLE result = jitInstance->mc->repGetObjectType(objPtr);
     return result;
 }
 
@@ -966,7 +1002,7 @@ void MyICJI::setBoundaries(CORINFO_METHOD_HANDLE         ftn,  // [IN] method of
     freeArray(pMap); // see note in recSetBoundaries... we own this array and own destroying it.
 }
 
-// Query the EE to find out the scope of local varables.
+// Query the EE to find out the scope of local variables.
 // normally the JIT would trash variables after last use, but
 // under debugging, the JIT needs to keep them live over their
 // entire scope so that they can be inspected.
@@ -1011,6 +1047,18 @@ void MyICJI::setVars(CORINFO_METHOD_HANDLE         ftn,   // [IN] method of inte
     jitInstance->mc->cr->AddCall("setVars");
     jitInstance->mc->cr->recSetVars(ftn, cVars, vars);
     freeArray(vars); // See note in recSetVars... we own destroying this array
+}
+
+void MyICJI::reportRichMappings(
+    ICorDebugInfo::InlineTreeNode*    inlineTreeNodes,
+    uint32_t                          numInlineTreeNodes,
+    ICorDebugInfo::RichOffsetMapping* mappings,
+    uint32_t                          numMappings)
+{
+    jitInstance->mc->cr->AddCall("reportRichMappings");
+    // TODO: record these mappings
+    freeArray(inlineTreeNodes);
+    freeArray(mappings);
 }
 
 /*-------------------------- Misc ---------------------------------------*/
@@ -1067,6 +1115,15 @@ CorInfoTypeWithMod MyICJI::getArgType(CORINFO_SIG_INFO*       sig,      /* IN */
     if (exceptionCode != 0)
         ThrowException(exceptionCode);
     return value;
+}
+
+int MyICJI::getExactClasses(CORINFO_CLASS_HANDLE    baseType,        /* IN */
+                            int                     maxExactClasses, /* IN */
+                            CORINFO_CLASS_HANDLE*   exactClsRet      /* OUT */
+                            )
+{
+    jitInstance->mc->cr->AddCall("getExactClasses");
+    return jitInstance->mc->repGetExactClasses(baseType, maxExactClasses, exactClsRet);
 }
 
 // If the Arg is a CORINFO_TYPE_CLASS fetch the class handle associated with it
@@ -1461,6 +1518,12 @@ void* MyICJI::getFieldAddress(CORINFO_FIELD_HANDLE field, void** ppIndirection)
     return jitInstance->mc->repGetFieldAddress(field, ppIndirection);
 }
 
+bool MyICJI::getReadonlyStaticFieldValue(CORINFO_FIELD_HANDLE field, uint8_t* buffer, int bufferSize)
+{
+    jitInstance->mc->cr->AddCall("getReadonlyStaticFieldValue");
+    return jitInstance->mc->repGetReadonlyStaticFieldValue(field, buffer, bufferSize);
+}
+
 // return the class handle for the current value of a static field
 CORINFO_CLASS_HANDLE MyICJI::getStaticFieldCurrentClass(CORINFO_FIELD_HANDLE field, bool* pIsSpeculative)
 {
@@ -1574,13 +1637,6 @@ uint32_t MyICJI::getJitFlags(CORJIT_FLAGS* jitFlags, uint32_t sizeInBytes)
         jitFlags->Set(CORJIT_FLAGS::CORJIT_FLAG_ALT_JIT);
     }
     return ret;
-}
-
-bool MyICJI::doesFieldBelongToClass(CORINFO_FIELD_HANDLE fldHnd, CORINFO_CLASS_HANDLE cls)
-{
-    jitInstance->mc->cr->AddCall("doesFieldBelongToClass");
-    bool result = jitInstance->mc->repDoesFieldBelongToClass(fldHnd, cls);
-    return result;
 }
 
 // Runs the given function with the given parameter under an error trap
@@ -1782,7 +1838,7 @@ bool MyICJI::logMsg(unsigned level, const char* fmt, va_list args)
 }
 
 // do an assert.  will return true if the code should retry (DebugBreak)
-// returns false, if the assert should be igored.
+// returns false, if the assert should be ignored.
 int MyICJI::doAssert(const char* szFile, int iLine, const char* szExpr)
 {
     jitInstance->mc->cr->AddCall("doAssert");

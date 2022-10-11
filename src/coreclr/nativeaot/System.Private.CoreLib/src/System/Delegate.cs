@@ -43,7 +43,7 @@ namespace System
 
         internal object m_firstParameter;
         internal object m_helperObject;
-        internal IntPtr m_extraFunctionPointerOrData;
+        internal nint m_extraFunctionPointerOrData;
         internal IntPtr m_functionPointer;
 
         // WARNING: These constants are also declared in System.Private.TypeLoader\Internal\Runtime\TypeLoader\CallConverterThunk.cs
@@ -52,9 +52,8 @@ namespace System
         private protected const int ClosedStaticThunk = 1;
         private protected const int OpenStaticThunk = 2;
         private protected const int ClosedInstanceThunkOverGenericMethod = 3; // This may not exist
-        private protected const int DelegateInvokeThunk = 4;
-        private protected const int OpenInstanceThunk = 5;        // This may not exist
-        private protected const int ObjectArrayThunk = 6;         // This may not exist
+        private protected const int OpenInstanceThunk = 4;        // This may not exist
+        private protected const int ObjectArrayThunk = 5;         // This may not exist
 
         //
         // If the thunk does not exist, the function will return IntPtr.Zero.
@@ -101,7 +100,7 @@ namespace System
                 isInterpreterEntrypoint = true;
                 return IntPtr.Zero;
             }
-            else if (m_extraFunctionPointerOrData != IntPtr.Zero)
+            else if (m_extraFunctionPointerOrData != 0)
             {
                 if (GetThunk(OpenInstanceThunk) == m_functionPointer)
                 {
@@ -157,7 +156,7 @@ namespace System
         private void InitializeClosedInstanceWithGVMResolution(object firstParameter, RuntimeMethodHandle tokenOfGenericVirtualMethod)
         {
             if (firstParameter is null)
-                throw new ArgumentException(SR.Arg_DlgtNullInst);
+                throw new NullReferenceException();
 
             IntPtr functionResolution = TypeLoaderExports.GVMLookupForSlot(firstParameter, tokenOfGenericVirtualMethod);
 
@@ -185,7 +184,7 @@ namespace System
         private void InitializeClosedInstanceToInterface(object firstParameter, IntPtr dispatchCell)
         {
             if (firstParameter is null)
-                throw new ArgumentException(SR.Arg_DlgtNullInst);
+                throw new NullReferenceException();
 
             m_functionPointer = RuntimeImports.RhpResolveInterfaceMethod(firstParameter, dispatchCell);
             m_firstParameter = firstParameter;
@@ -266,31 +265,21 @@ namespace System
         }
 
         [DebuggerGuidedStepThroughAttribute]
-        protected virtual object DynamicInvokeImpl(object?[]? args)
+        protected virtual object? DynamicInvokeImpl(object?[]? args)
         {
             if (IsDynamicDelegate())
             {
                 // DynamicDelegate case
-                object result = ((Func<object?[]?, object>)m_helperObject)(args);
+                object? result = ((Func<object?[]?, object?>)m_helperObject)(args);
                 DebugAnnotations.PreviousCallContainsDebuggerStepInCode();
                 return result;
             }
             else
             {
-                IntPtr invokeThunk = this.GetThunk(DelegateInvokeThunk);
+                DynamicInvokeInfo dynamicInvokeInfo = ReflectionAugments.ReflectionCoreCallbacks.GetDelegateDynamicInvokeInfo(GetType());
 
-                IntPtr genericDictionary = IntPtr.Zero;
-                if (FunctionPointerOps.IsGenericMethodPointer(invokeThunk))
-                {
-                    unsafe
-                    {
-                        GenericMethodDescriptor* descriptor = FunctionPointerOps.ConvertToGenericDescriptor(invokeThunk);
-                        genericDictionary = descriptor->InstantiationArgument;
-                        invokeThunk = descriptor->MethodFunctionPointer;
-                    }
-                }
-
-                object result = InvokeUtils.CallDynamicInvokeMethod(this.m_firstParameter, this.m_functionPointer, invokeThunk, genericDictionary, this, args, binderBundle: null, wrapInTargetInvocationException: true);
+                object? result = dynamicInvokeInfo.Invoke(m_firstParameter, m_functionPointer,
+                    args, binderBundle: null, wrapInTargetInvocationException: true);
                 DebugAnnotations.PreviousCallContainsDebuggerStepInCode();
                 return result;
             }

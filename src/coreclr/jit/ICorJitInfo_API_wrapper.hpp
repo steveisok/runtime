@@ -69,6 +69,15 @@ CorInfoInline WrapICorJitInfo::canInline(
     return temp;
 }
 
+void WrapICorJitInfo::beginInlining(
+          CORINFO_METHOD_HANDLE inlinerHnd,
+          CORINFO_METHOD_HANDLE inlineeHnd)
+{
+    API_ENTER(beginInlining);
+    wrapHnd->beginInlining(inlinerHnd, inlineeHnd);
+    API_LEAVE(beginInlining);
+}
+
 void WrapICorJitInfo::reportInliningDecision(
           CORINFO_METHOD_HANDLE inlinerHnd,
           CORINFO_METHOD_HANDLE inlineeHnd,
@@ -365,6 +374,18 @@ int WrapICorJitInfo::getStringLiteral(
     return temp;
 }
 
+size_t WrapICorJitInfo::printObjectDescription(
+          void* handle,
+          char* buffer,
+          size_t bufferSize,
+          size_t* pRequiredBufferSize)
+{
+    API_ENTER(printObjectDescription);
+    size_t temp = wrapHnd->printObjectDescription(handle, buffer, bufferSize, pRequiredBufferSize);
+    API_LEAVE(printObjectDescription);
+    return temp;
+}
+
 CorInfoType WrapICorJitInfo::asCorInfoType(
           CORINFO_CLASS_HANDLE cls)
 {
@@ -640,6 +661,33 @@ CorInfoHelpFunc WrapICorJitInfo::getUnBoxHelper(
     API_ENTER(getUnBoxHelper);
     CorInfoHelpFunc temp = wrapHnd->getUnBoxHelper(cls);
     API_LEAVE(getUnBoxHelper);
+    return temp;
+}
+
+void* WrapICorJitInfo::getRuntimeTypePointer(
+          CORINFO_CLASS_HANDLE cls)
+{
+    API_ENTER(getRuntimeTypePointer);
+    void* temp = wrapHnd->getRuntimeTypePointer(cls);
+    API_LEAVE(getRuntimeTypePointer);
+    return temp;
+}
+
+bool WrapICorJitInfo::isObjectImmutable(
+          void* objPtr)
+{
+    API_ENTER(isObjectImmutable);
+    bool temp = wrapHnd->isObjectImmutable(objPtr);
+    API_LEAVE(isObjectImmutable);
+    return temp;
+}
+
+CORINFO_CLASS_HANDLE WrapICorJitInfo::getObjectType(
+          void* objPtr)
+{
+    API_ENTER(getObjectType);
+    CORINFO_CLASS_HANDLE temp = wrapHnd->getObjectType(objPtr);
+    API_LEAVE(getObjectType);
     return temp;
 }
 
@@ -958,6 +1006,17 @@ void WrapICorJitInfo::setVars(
     API_LEAVE(setVars);
 }
 
+void WrapICorJitInfo::reportRichMappings(
+          ICorDebugInfo::InlineTreeNode* inlineTreeNodes,
+          uint32_t numInlineTreeNodes,
+          ICorDebugInfo::RichOffsetMapping* mappings,
+          uint32_t numMappings)
+{
+    API_ENTER(reportRichMappings);
+    wrapHnd->reportRichMappings(inlineTreeNodes, numInlineTreeNodes, mappings, numMappings);
+    API_LEAVE(reportRichMappings);
+}
+
 void* WrapICorJitInfo::allocateArray(
           size_t cBytes)
 {
@@ -992,6 +1051,17 @@ CorInfoTypeWithMod WrapICorJitInfo::getArgType(
     API_ENTER(getArgType);
     CorInfoTypeWithMod temp = wrapHnd->getArgType(sig, args, vcTypeRet);
     API_LEAVE(getArgType);
+    return temp;
+}
+
+int WrapICorJitInfo::getExactClasses(
+          CORINFO_CLASS_HANDLE baseType,
+          int maxExactClasses,
+          CORINFO_CLASS_HANDLE* exactClsRet)
+{
+    API_ENTER(getExactClasses);
+    int temp = wrapHnd->getExactClasses(baseType, maxExactClasses, exactClsRet);
+    API_LEAVE(getExactClasses);
     return temp;
 }
 
@@ -1399,6 +1469,17 @@ void* WrapICorJitInfo::getFieldAddress(
     return temp;
 }
 
+bool WrapICorJitInfo::getReadonlyStaticFieldValue(
+          CORINFO_FIELD_HANDLE field,
+          uint8_t* buffer,
+          int bufferSize)
+{
+    API_ENTER(getReadonlyStaticFieldValue);
+    bool temp = wrapHnd->getReadonlyStaticFieldValue(field, buffer, bufferSize);
+    API_LEAVE(getReadonlyStaticFieldValue);
+    return temp;
+}
+
 CORINFO_CLASS_HANDLE WrapICorJitInfo::getStaticFieldCurrentClass(
           CORINFO_FIELD_HANDLE field,
           bool* pIsSpeculative)
@@ -1687,16 +1768,6 @@ uint32_t WrapICorJitInfo::getJitFlags(
     API_ENTER(getJitFlags);
     uint32_t temp = wrapHnd->getJitFlags(flags, sizeInBytes);
     API_LEAVE(getJitFlags);
-    return temp;
-}
-
-bool WrapICorJitInfo::doesFieldBelongToClass(
-          CORINFO_FIELD_HANDLE fldHnd,
-          CORINFO_CLASS_HANDLE cls)
-{
-    API_ENTER(doesFieldBelongToClass);
-    bool temp = wrapHnd->doesFieldBelongToClass(fldHnd, cls);
-    API_LEAVE(doesFieldBelongToClass);
     return temp;
 }
 
