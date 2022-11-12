@@ -133,6 +133,7 @@
         ForceFullAOT="$(ForceFullAOT)"
         ForceInterpreter="$(MonoForceInterpreter)"
         StripDebugSymbols="False"
+        StaticLinkedRuntime="$(StaticLinkedRuntime)"
         RuntimeComponents="$(RuntimeComponents)"
         DiagnosticPorts="$(DiagnosticPorts)"
         OutputDir="$(AndroidAppBundleDir)"

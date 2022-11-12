@@ -35,6 +35,8 @@ public class MonoRunner extends Instrumentation
     static {
         // loadLibrary triggers JNI_OnLoad in these libs
         System.loadLibrary("System.Security.Cryptography.Native.Android");
+        System.loadLibrary("runtime_one");
+        System.loadLibrary("runtime_two");
         System.loadLibrary("monodroid");
     }
 

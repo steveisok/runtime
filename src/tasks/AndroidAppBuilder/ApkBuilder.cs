@@ -154,8 +154,7 @@ public class ApkBuilder
             if (!string.IsNullOrEmpty(obj))
             {
                 var name = Path.GetFileNameWithoutExtension(obj);
-                assemblerFiles.AppendLine($"add_library({name} OBJECT {obj})");
-                assemblerFilesToLink.AppendLine($"    {name}");
+                assemblerFiles.AppendLine($"    {obj}");
             }
 
             if (!string.IsNullOrEmpty(llvmObj))
@@ -319,14 +318,14 @@ public class ApkBuilder
             nativeLibraries += $"    {monoRuntimeLib}{Environment.NewLine}";
         }
 
-        nativeLibraries += assemblerFilesToLink.ToString();
-
         string aotSources = assemblerFiles.ToString();
+        string aotObjects = assemblerFilesToLink.ToString();
 
         string cmakeLists = Utils.GetEmbeddedResource("CMakeLists-android.txt")
             .Replace("%MonoInclude%", monoRuntimeHeaders)
             .Replace("%NativeLibrariesToLink%", nativeLibraries)
             .Replace("%AotSources%", aotSources)
+            .Replace("%AotObjects%", aotObjects)
             .Replace("%AotModulesSource%", string.IsNullOrEmpty(aotSources) ? "" : "modules.c");
 
         var defines = new StringBuilder();
@@ -358,6 +357,8 @@ public class ApkBuilder
         File.WriteAllText(Path.Combine(OutputDir, "CMakeLists.txt"), cmakeLists);
 
         File.WriteAllText(Path.Combine(OutputDir, "monodroid.c"), Utils.GetEmbeddedResource("monodroid.c"));
+        File.WriteAllText(Path.Combine(OutputDir, "runtime_one.c"), Utils.GetEmbeddedResource("runtime_one.c"));
+        File.WriteAllText(Path.Combine(OutputDir, "runtime_two.c"), Utils.GetEmbeddedResource("runtime_two.c"));
 
         string cmakeGenArgs = $"-DCMAKE_TOOLCHAIN_FILE={androidToolchain} -DANDROID_ABI=\"{abi}\" -DANDROID_STL=none " +
             $"-DANDROID_PLATFORM=android-{MinApiLevel} -B monodroid";
@@ -451,6 +452,8 @@ public class ApkBuilder
 
         var dynamicLibs = new List<string>();
         dynamicLibs.Add(Path.Combine(OutputDir, "monodroid", "libmonodroid.so"));
+        dynamicLibs.Add(Path.Combine(OutputDir, "monodroid", "libruntime_one.so"));
+        dynamicLibs.Add(Path.Combine(OutputDir, "monodroid", "libruntime_two.so"));
         dynamicLibs.AddRange(Directory.GetFiles(AppDir, "*.so").Where(file => Path.GetFileName(file) != "libmonodroid.so"));
 
         // add all *.so files to lib/%abi%/

@@ -12,18 +12,55 @@ add_library(
     monodroid
     SHARED
     monodroid.c
-    %AotModulesSource%
 )
 
-%AotSources%
+add_library(
+    aot_modules
+    STATIC
+    %AotSources%
+)
+target_link_libraries(
+    aot_modules
+    %AotObjects%
+)
 
 %Defines%
 
 include_directories("%MonoInclude%")
 
+add_library(
+    runtime_one SHARED 
+    runtime_one.c
+    %AotModulesSource%
+)
+target_link_libraries(
+    runtime_one
+    aot_modules
+    log
+    libz.so
+    -Wl,--exclude-libs=libmonosgen-2.0.a,libaot_modules.a
+    %NativeLibrariesToLink%
+)
+
+add_library(
+    runtime_two SHARED 
+    runtime_two.c
+    %AotModulesSource%
+)
+target_link_libraries(
+    runtime_two
+    aot_modules
+    log
+    libz.so
+    -Wl,--exclude-libs=libmonosgen-2.0.a,libaot_modules.a
+    %NativeLibrariesToLink%
+)
+
+
 target_link_libraries(
     monodroid
-    %NativeLibrariesToLink%
+    runtime_one
+    runtime_two
     libz.so
     log
     "-u GlobalizationNative_LoadICU"
