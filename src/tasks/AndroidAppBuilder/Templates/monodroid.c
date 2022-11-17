@@ -73,8 +73,8 @@ Java_net_dot_MonoRunner_initRuntime (JNIEnv* env, jobject thiz, jstring j_files_
     setenv ("TMPDIR", cache_dir, true);
     setenv ("TEST_RESULTS_DIR", testresults_dir, true);
 
-    //setenv ("MONO_LOG_LEVEL", "debug", true);
-    //setenv ("MONO_LOG_MASK", "all", true);
+    setenv ("MONO_LOG_LEVEL", "debug", true);
+    setenv ("MONO_LOG_MASK", "all", true);
 
     int args_len = (*env)->GetArrayLength(env, j_args);
     int managed_argc = args_len + 1;

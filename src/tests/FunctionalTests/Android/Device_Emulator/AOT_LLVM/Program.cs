@@ -9,6 +9,7 @@ public static class Program
     {
         var ctx = AppContext.GetData("EMBEDDED_RUNTIME_ID");
         string id = "NO-ID";
+        string ex = null;
 
         if (ctx != null)
         {
@@ -23,11 +24,14 @@ public static class Program
         }
         catch(Exception e)
         {
-            Console.WriteLine("EXCEPTION: " + e.ToString());
+            Console.WriteLine($"EXCEPTION in {id}: " + e.ToString());
         }
 
         Console.WriteLine("GC COLLECT FROM " + id);
         GC.Collect();
+
+        if (ex == null && id != "DOTNET-RUNTIME-ONE")
+            ex = ex.ToString();
 
         return 42;
     }

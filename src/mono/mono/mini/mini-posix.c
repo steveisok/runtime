@@ -286,6 +286,7 @@ MONO_SIG_HANDLER_FUNC (static, profiler_signal_handler)
 
 MONO_SIG_HANDLER_FUNC (static, sigquit_signal_handler)
 {
+	g_warning("INSIDE RUNTIME sigquit handler");
 	mono_threads_request_thread_dump ();
 
 	mono_chain_signal (MONO_SIG_HANDLER_PARAMS);
@@ -293,6 +294,8 @@ MONO_SIG_HANDLER_FUNC (static, sigquit_signal_handler)
 
 MONO_SIG_HANDLER_FUNC (static, sigusr2_signal_handler)
 {
+	g_warning("INSIDE RUNTIME sigusr2 handler");
+
 	gboolean enabled = mono_trace_is_enabled ();
 
 	mono_trace_enable (!enabled);
