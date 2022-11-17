@@ -3626,6 +3626,8 @@ MONO_SIG_HANDLER_FUNC (, mono_crashing_signal_handler)
 	MONO_SIG_HANDLER_INFO_TYPE *info = MONO_SIG_HANDLER_GET_INFO ();
 	MONO_SIG_HANDLER_GET_CONTEXT;
 
+	g_warning("INSIDE RUNTIME crashing handler");
+
 	if (mono_runtime_get_no_exec ())
 		exit (1);
 
@@ -3678,6 +3680,8 @@ MONO_SIG_HANDLER_FUNC (, mono_sigsegv_signal_handler)
 	MonoDomain *domain = mono_domain_get ();
 	gpointer fault_addr = NULL;
 	MonoContext mctx;
+
+	g_warning("INSIDE RUNTIME sigsegv handler");
 
 #if defined(HAVE_SIG_INFO) || defined(MONO_ARCH_SIGSEGV_ON_ALTSTACK)
 	MonoJitTlsData *jit_tls = mono_tls_get_jit_tls ();

@@ -27,9 +27,12 @@ while true; do
     fi
 done
 
+XHARNESS_CLI_PATH="/home/steve/dev/xharness/artifacts/bin/Microsoft.DotNet.XHarness.CLI/Debug/net7.0/Microsoft.DotNet.XHarness.CLI.dll"
+
 if [[ -n "$XHARNESS_CLI_PATH" ]]; then
     # Allow overriding the path to the XHarness CLI DLL,
     # we need to call it directly via dotnet exec
+    echo "CLI PATH!"
     HARNESS_RUNNER="dotnet exec $XHARNESS_CLI_PATH"
 else
 	HARNESS_RUNNER="dotnet xharness"
