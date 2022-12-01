@@ -444,6 +444,12 @@ internal sealed class Xcode
                 .Replace("//%APPLE_RUNTIME_IDENTIFIER%", RuntimeIdentifier)
                 .Replace("%EntryPointLibName%", Path.GetFileName(entryPointLib)));
 
+        File.WriteAllText(Path.Combine(binDir, "runtime_two.m"),
+            Utils.GetEmbeddedResource("runtime_two.m")
+                .Replace("//%DllMap%", dllMap.ToString())
+                .Replace("//%APPLE_RUNTIME_IDENTIFIER%", RuntimeIdentifier)
+                .Replace("%EntryPointLibName%", Path.GetFileName(entryPointLib)));
+
         File.WriteAllText(Path.Combine(binDir, "gather-symbols.sh"), Utils.GetEmbeddedResource("gather-symbols.sh"));
         Utils.RunProcess(Logger, "/bin/bash", "-c \"chmod 744 gather-symbols.sh\"", workingDir: binDir);
 

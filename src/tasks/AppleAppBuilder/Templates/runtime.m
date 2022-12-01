@@ -30,6 +30,10 @@ void runtime_one_init (const char *bundle);
 int runtime_one_exec (const char *executable, int argi, const char *managed_argv);
 void runtime_one_shutdown (void);
 
+void runtime_two_init (const char *bundle);
+int runtime_two_exec (const char *executable, int argi, const char *managed_argv);
+void runtime_two_shutdown (void);
+
 const char *
 get_bundle_path (void)
 {
@@ -87,12 +91,16 @@ mono_ios_runtime_init (void)
     }
 
     runtime_one_init (bundle);
+    runtime_two_init (bundle);
 
     int res = runtime_one_exec (executable, argi, managed_argv);
-
     os_log_info (OS_LOG_DEFAULT, "RUNTIME ONE RETURN VALUE '%d'.", res);
 
+    res = runtime_two_exec (executable, argi, managed_argv);
+    os_log_info (OS_LOG_DEFAULT, "RUNTIME TWO RETURN VALUE '%d'.", res);
+
     runtime_one_shutdown ();
+    runtime_two_shutdown ();
     
     exit (res);
 }
