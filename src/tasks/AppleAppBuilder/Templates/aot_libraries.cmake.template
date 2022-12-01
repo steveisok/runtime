@@ -1,0 +1,9 @@
+add_library(
+    AOTLibraries
+    STATIC
+    %AotSources%
+)
+target_link_libraries(
+    AOTLibraries
+    %AotObjects%
+)
