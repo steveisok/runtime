@@ -12,17 +12,64 @@ add_executable(
     %MainSource%
     runtime.h
     runtime.m
-    %AotModulesSource%
     ${APP_RESOURCES}
 )
-
-%AotSources%
 
 %Defines%
 
 include_directories("%MonoInclude%")
 
-set_target_properties(%ProjectName% %AotTargetsList% PROPERTIES
+if(FORCE_AOT)
+    include(${CMAKE_CURRENT_LIST_DIR}/aot_libraries.cmake)
+
+    set_target_properties(AOTLibraries PROPERTIES
+        XCODE_ATTRIBUTE_SUPPORTS_MACCATALYST "YES"
+    )
+endif()
+
+# grab all of the symbols from libmonosgen and libaot_modules
+# we want to exclude them from the symbols in runtime_one and runtime_two
+add_custom_command(
+    OUTPUT symbols.txt
+    COMMAND test -f symbols.txt && rm symbols.txt
+    COMMAND ./gather-symbols.sh ../publish/libmonosgen-2.0.a
+    COMMAND ./gather-symbols.sh $<TARGET_FILE:AOTLibraries>
+    VERBATIM
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMENT "Building symbol exclusion list"
+)
+add_custom_target(
+    symbol_target
+    DEPENDS AOTLibraries symbols.txt
+)
+
+add_library(
+    runtime_one SHARED 
+    runtime_one.m
+    %AotModulesSource%
+)
+add_dependencies(runtime_one symbol_target)
+target_link_libraries(
+    runtime_one
+    AOTLibraries
+    "-framework Foundation"
+    "-framework Security"
+    "-framework UIKit"
+    %FrameworksToLink%
+    "-lz"
+    "-lc++"
+    "-liconv"
+    "-Wl,-unexported_symbols_list symbols.txt"
+    %NativeLibrariesToLink%
+)
+
+set_target_properties(runtime_one PROPERTIES
+    FRAMEWORK TRUE
+    FRAMEWORK_VERSION C
+    MACOSX_FRAMEWORK_IDENTIFIER net.dot.runtime_one
+)
+
+set_target_properties(%ProjectName% PROPERTIES
     XCODE_ATTRIBUTE_SUPPORTS_MACCATALYST "YES"
 )
 
@@ -56,14 +103,28 @@ endif()
 
 # FIXME: `XCODE_ATTRIBUTE_DEAD_CODE_STRIPPING` should not be NO
 
-target_link_libraries(
-    %ProjectName%
-    "-framework Foundation"
-    "-framework Security"
-    "-framework UIKit"
-    %FrameworksToLink%
-    "-lz"
-    "-lc++"
-    "-liconv"
-%NativeLibrariesToLink%
-)
+if(FORCE_AOT)
+    target_link_libraries(
+        %ProjectName%
+        runtime_one
+        "-framework Foundation"
+        "-framework Security"
+        "-framework UIKit"
+        %FrameworksToLink%
+        "-lz"
+        "-lc++"
+        "-liconv"
+    )
+else()
+    target_link_libraries(
+        %ProjectName%
+        "-framework Foundation"
+       "-framework Security"
+        "-framework UIKit"
+        %FrameworksToLink%
+        "-lz"
+        "-lc++"
+        "-liconv"
+        %NativeLibrariesToLink%
+    )
+endif()

@@ -337,19 +337,17 @@ internal sealed class Xcode
         }
 
         string aotSources = "";
-        string aotList = "";
+        string aotObjects = "";
         foreach (string asm in asmFiles)
         {
             // these libraries are linked via modules.m
             var name = Path.GetFileNameWithoutExtension(asm);
-            aotSources += $"add_library({projectName}_{name} OBJECT {asm}){Environment.NewLine}";
-            toLink += $"    {projectName}_{name}{Environment.NewLine}";
-            aotList += $" {projectName}_{name}";
+            aotSources += $"{asm}{Environment.NewLine}";
         }
 
         foreach (string asmLinkFile in asmLinkFiles)
         {
-            toLink += $"    {asmLinkFile}{Environment.NewLine}";
+            aotObjects += $"    {asmLinkFile}{Environment.NewLine}";
         }
 
         string frameworks = "";
@@ -358,10 +356,13 @@ internal sealed class Xcode
             frameworks = "\"-framework GSS\"";
         }
 
+        if (forceAOT)
+        {
+            GenerateAOTCMake(binDir, aotSources, aotObjects);
+        }
+
         cmakeLists = cmakeLists.Replace("%FrameworksToLink%", frameworks);
         cmakeLists = cmakeLists.Replace("%NativeLibrariesToLink%", toLink);
-        cmakeLists = cmakeLists.Replace("%AotSources%", aotSources);
-        cmakeLists = cmakeLists.Replace("%AotTargetsList%", aotList);
         cmakeLists = cmakeLists.Replace("%AotModulesSource%", string.IsNullOrEmpty(aotSources) ? "" : "modules.m");
 
         var defines = new StringBuilder();
@@ -373,6 +374,7 @@ internal sealed class Xcode
         if (forceAOT)
         {
             defines.AppendLine("add_definitions(-DFORCE_AOT=1)");
+            defines.AppendLine("set(FORCE_AOT 1)");
         }
 
         if (invariantGlobalization)
@@ -435,6 +437,15 @@ internal sealed class Xcode
                 .Replace("//%DllMap%", dllMap.ToString())
                 .Replace("//%APPLE_RUNTIME_IDENTIFIER%", RuntimeIdentifier)
                 .Replace("%EntryPointLibName%", Path.GetFileName(entryPointLib)));
+
+        File.WriteAllText(Path.Combine(binDir, "runtime_one.m"),
+            Utils.GetEmbeddedResource("runtime_one.m")
+                .Replace("//%DllMap%", dllMap.ToString())
+                .Replace("//%APPLE_RUNTIME_IDENTIFIER%", RuntimeIdentifier)
+                .Replace("%EntryPointLibName%", Path.GetFileName(entryPointLib)));
+
+        File.WriteAllText(Path.Combine(binDir, "gather-symbols.sh"), Utils.GetEmbeddedResource("gather-symbols.sh"));
+        Utils.RunProcess(Logger, "/bin/bash", "-c \"chmod 744 gather-symbols.sh\"", workingDir: binDir);
 
         return binDir;
     }
@@ -545,5 +556,14 @@ internal sealed class Xcode
         Logger.LogMessage(MessageImportance.High, $"\nAPP size: {(appSize / 1000_000.0):0.#} Mb.\n");
 
         return appPath;
+    }
+
+    private static void GenerateAOTCMake(string binDir, string aotSources, string aotObjects)
+    {
+        string aotLibraryCMakeLists = Utils.GetEmbeddedResource("aot_libraries.cmake.template")
+            .Replace("%AotSources%", aotSources)
+            .Replace("%AotObjects%", aotObjects);
+
+        File.WriteAllText(Path.Combine(binDir, "aot_libraries.cmake"), aotLibraryCMakeLists);
     }
 }
