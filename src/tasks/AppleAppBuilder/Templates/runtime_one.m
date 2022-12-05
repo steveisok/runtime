@@ -24,6 +24,8 @@ static char *bundle_path;
 
 static MonoDomain *domain;
 
+static os_log_t rlog;
+
 #define APPLE_RUNTIME_IDENTIFIER "//%APPLE_RUNTIME_IDENTIFIER%"
 #define RUNTIMECONFIG_BIN_FILE "runtimeconfig.bin"
 
@@ -59,25 +61,25 @@ load_aot_data (MonoAssembly *assembly, int size, void *user_data, void **out_han
     const char *aname = mono_assembly_name_get_name (assembly_name);
     const char *bundle = get_bundle_path ();
 
-    os_log_info (OS_LOG_DEFAULT, "Looking for aot data for assembly '%s'.", aname);
+    os_log_info (rlog, "Looking for aot data for assembly '%s'.", aname);
     res = snprintf (path, sizeof (path) - 1, "%s/%s.aotdata", bundle, aname);
     assert (res > 0);
 
     int fd = open (path, O_RDONLY);
     if (fd < 0) {
-        os_log_info (OS_LOG_DEFAULT, "Could not load the aot data for %s from %s: %s\n", aname, path, strerror (errno));
+        os_log_info (rlog, "Could not load the aot data for %s from %s: %s\n", aname, path, strerror (errno));
         return NULL;
     }
 
     void *ptr = mmap (NULL, size, PROT_READ, MAP_FILE | MAP_PRIVATE, fd, 0);
     if (ptr == MAP_FAILED) {
-        os_log_info (OS_LOG_DEFAULT, "Could not map the aot file for %s: %s\n", aname, strerror (errno));
+        os_log_info (rlog, "Could not map the aot file for %s: %s\n", aname, strerror (errno));
         close (fd);
         return NULL;
     }
 
     close (fd);
-    os_log_info (OS_LOG_DEFAULT, "Loaded aot data for %s.\n", aname);
+    os_log_info (rlog, "Loaded aot data for %s.\n", aname);
     *out_handle = ptr;
     return (unsigned char *) ptr;
 }
@@ -116,7 +118,7 @@ load_assembly (const char *name, const char *culture)
     const char *bundle = get_bundle_path ();
     char filename [1024];
 
-    os_log_info (OS_LOG_DEFAULT, "assembly_preload_hook: %{public}s %{public}s %{public}s\n", name, culture, bundle);
+    os_log_info (rlog, "assembly_preload_hook: %{public}s %{public}s %{public}s\n", name, culture, bundle);
 
     int len = strlen (name);
     int has_extension = len > 3 && name [len - 4] == '.' && (!strcmp ("exe", name + (len - 3)) || !strcmp ("dll", name + (len - 3)));
@@ -203,17 +205,17 @@ unhandled_exception_handler (MonoObject *exc, void *user_data)
     free (message);
     free (type_name);
 
-    os_log_info (OS_LOG_DEFAULT, "%@", msg);
-    os_log_info (OS_LOG_DEFAULT, EXIT_CODE_TAG ": %d", 1);
+    os_log_info (rlog, "%@", msg);
+    os_log_info (rlog, EXIT_CODE_TAG ": %d", 1);
     exit (1);
 }
 
 void
 log_callback (const char *log_domain, const char *log_level, const char *message, mono_bool fatal, void *user_data)
 {
-    os_log_info (OS_LOG_DEFAULT, "(%{public}s %{public}s) %{public}s", log_domain, log_level, message);
+    os_log_info (rlog, "(%{public}s %{public}s) %{public}s", log_domain, log_level, message);
     if (fatal) {
-        os_log_info (OS_LOG_DEFAULT, EXIT_CODE_TAG ": %d", 1);
+        os_log_info (rlog, EXIT_CODE_TAG ": %d", 1);
         exit (1);
     }
 }
@@ -240,6 +242,9 @@ void register_aot_modules (void);
 void
 runtime_one_init (const char *bundle)
 {
+    rlog = os_log_create ("RUNTIME_ONE", "default");
+    mono_trace_set_log_name ("RUNTIME_ONE");
+
     id args_array = [[NSProcessInfo processInfo] arguments];
     assert ([args_array count] <= 128);
     const char *managed_argv [128];
@@ -262,15 +267,17 @@ runtime_one_init (const char *bundle)
         "RUNTIME_IDENTIFIER",
         "APP_CONTEXT_BASE_DIRECTORY",
 #if !defined(INVARIANT_GLOBALIZATION)
-        "ICU_DAT_FILE_PATH"
+        "ICU_DAT_FILE_PATH",
 #endif
+        "EMBEDDED_RUNTIME_ID"
     };
     const char *appctx_values [] = {
         APPLE_RUNTIME_IDENTIFIER,
         bundle,
 #if !defined(INVARIANT_GLOBALIZATION)
-        icu_dat_path
+        icu_dat_path,
 #endif
+        "DOTNET-RUNTIME-ONE"
     };
 
     char *file_name = RUNTIMECONFIG_BIN_FILE;
@@ -307,7 +314,7 @@ runtime_one_init (const char *bundle)
 
 #if (FORCE_INTERPRETER && !FORCE_AOT)
     // interp w/ JIT fallback. Assumption is that your configuration can JIT
-    os_log_info (OS_LOG_DEFAULT, "INTERP Enabled");
+    os_log_info (rlog, "INTERP Enabled");
     mono_jit_set_aot_mode (MONO_AOT_MODE_INTERP_ONLY);
 #elif (!TARGET_OS_SIMULATOR && !TARGET_OS_MACCATALYST) || FORCE_AOT
     register_dllmap ();
@@ -315,7 +322,7 @@ runtime_one_init (const char *bundle)
     register_aot_modules ();
 
 #if (FORCE_INTERPRETER && FORCE_AOT)
-    os_log_info (OS_LOG_DEFAULT, "AOT INTERP Enabled");
+    os_log_info (rlog, "AOT INTERP Enabled");
     mono_jit_set_aot_mode (MONO_AOT_MODE_INTERP);
 #else
     mono_jit_set_aot_mode (MONO_AOT_MODE_FULL);
@@ -354,11 +361,11 @@ runtime_one_exec (const char *executable, int argi, const char *managed_argv)
 
     MonoAssembly *assembly = load_assembly (executable, NULL);
     assert (assembly);
-    os_log_info (OS_LOG_DEFAULT, "Executable: %{public}s", executable);
+    os_log_info (rlog, "Executable: %{public}s", executable);
 
     res = mono_jit_exec (mono_domain_get (), assembly, argi, managed_argv);
     // Print this so apps parsing logs can detect when we exited
-    os_log_info (OS_LOG_DEFAULT, EXIT_CODE_TAG ": %d", res);
+    os_log_info (rlog, EXIT_CODE_TAG ": %d", res);
 
     return res;
 }

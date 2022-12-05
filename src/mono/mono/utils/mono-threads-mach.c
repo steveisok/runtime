@@ -30,7 +30,11 @@
 void
 mono_threads_suspend_init (void)
 {
-	mono_threads_init_dead_letter ();
+	// Crashes with two runtimes embedded in the same iOS app
+	// skipping for now
+	//
+	// TODO: Figure out if this can work with two runtimes in the same app
+	//mono_threads_init_dead_letter ();
 }
 
 #if defined(HOST_WATCHOS)
@@ -212,7 +216,11 @@ mono_threads_suspend_register (MonoThreadInfo *info)
 	snprintf (thread_name, sizeof (thread_name), "tid_%x", (int) info->native_handle);
 	pthread_setname_np (thread_name);
 
-	mono_threads_install_dead_letter ();
+	// Crashes with two runtimes embedded in the same iOS app
+	// skipping for now
+	//
+	// TODO: Figure out if this can work with two runtimes in the same app
+	//mono_threads_install_dead_letter ();
 }
 
 void

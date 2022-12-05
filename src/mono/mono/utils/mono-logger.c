@@ -27,6 +27,8 @@ static MonoPrintCallback print_callback, printerr_callback;
 
 static MonoLogCallParm logCallback;
 
+static char *log_name;
+
 typedef struct {
    MonoLogCallback legacy_callback;
    gpointer user_data;
@@ -455,6 +457,11 @@ mono_trace_set_log_handler (MonoLogCallback callback, void *user_data)
 	g_log_set_default_handler (eglib_log_adapter, user_data);
 }
 
+void mono_trace_set_log_name (char *name)
+{
+	log_name = name;
+}
+
 static void
 structured_log_adapter (const gchar *log_domain, GLogLevelFlags log_level, const gchar *message, gpointer user_data)
 {
@@ -480,7 +487,8 @@ mono_trace_set_log_handler_internal (MonoLogCallParm *callback, void *user_data)
 	logCallback.closer = callback->closer;
 	logCallback.header = mono_trace_log_header;
 	logCallback.dest   = callback->dest;
-	logCallback.opener (logCallback.dest, user_data);
+
+	logCallback.opener (log_name, user_data);
 
 	g_log_set_default_handler (structured_log_adapter, user_data);
 }
