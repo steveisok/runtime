@@ -9,9 +9,13 @@
 #include <os/log.h>
 #include "mono-logger-internals.h"
 
+static os_log_t mono_log = OS_LOG_DEFAULT;
+
 void
 mono_log_open_os_log (const char *path, void *userData)
 {
+	if (path)
+		mono_log = os_log_create (path, "default");
 }
 
 static int
@@ -48,7 +52,7 @@ to_log_level_name (GLogLevelFlags log_level)
 void
 mono_log_write_os_log (const char *log_domain, GLogLevelFlags level, mono_bool hdr, const char *message)
 {
-	os_log_with_type (OS_LOG_DEFAULT, to_os_log_priority (level), "%{public}s%{public}s%{public}s: %{public}s",
+	os_log_with_type (mono_log, to_os_log_priority (level), "%{public}s%{public}s%{public}s: %{public}s",
 		log_domain != NULL ? log_domain : "",
 		log_domain != NULL ? ": " : "",
 		to_log_level_name(level),

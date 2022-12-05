@@ -6,6 +6,8 @@
 #error "MONO_API_FUNCTION(ret,name,args) macro not defined before including function declaration header"
 #endif
 
+MONO_API_FUNCTION(void, mono_trace_set_log_name, (char *name))
+
 MONO_API_FUNCTION(void, mono_trace_set_level_string, (const char *value))
 
 MONO_API_FUNCTION(void, mono_trace_set_mask_string, (const char *value))
