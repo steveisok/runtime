@@ -14,10 +14,10 @@
     <PackageReference Include="Microsoft.Build.Tasks.Core" Version="$(MicrosoftBuildTasksCoreVersion)" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="AppleAppBuilder.cs" />
+    <Compile Include="AppleLibraryBuilder.cs" />
     <Compile Include="..\Common\Utils.cs" />
+    <Compile Include="..\Common\Apple\AppleBuilder.cs" />
     <Compile Include="..\Common\Apple\TargetOS.cs" />
-    <Compile Include="Xcode.cs" />
   </ItemGroup>
 
   <Target Name="GetFilesToPackage" />
