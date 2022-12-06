@@ -7,14 +7,6 @@ set(APP_RESOURCES
 %AppResources%
 )
 
-add_executable(
-    %ProjectName%
-    %MainSource%
-    runtime.h
-    runtime.m
-    ${APP_RESOURCES}
-)
-
 %Defines%
 
 include_directories("%MonoInclude%")
@@ -69,91 +61,5 @@ set_target_properties(runtime_one PROPERTIES
     MACOSX_FRAMEWORK_IDENTIFIER net.dot.runtime_one
     XCODE_ATTRIBUTE_INSTALL_PATH "@executable_path/Frameworks"
 )
-
-add_library(
-    runtime_two SHARED 
-    runtime_two.m
-    %AotModulesSource%
-)
-add_dependencies(runtime_two symbol_target)
-target_link_libraries(
-    runtime_two
-    AOTLibraries
-    "-framework Foundation"
-    "-framework Security"
-    "-framework UIKit"
-    %FrameworksToLink%
-    "-lz"
-    "-lc++"
-    "-liconv"
-    "-Wl,-unexported_symbols_list symbols.txt"
-    %NativeLibrariesToLink%
-)
-
-set_target_properties(runtime_two PROPERTIES
-    FRAMEWORK TRUE
-    FRAMEWORK_VERSION C
-    MACOSX_FRAMEWORK_IDENTIFIER net.dot.runtime_two
-    XCODE_ATTRIBUTE_INSTALL_PATH "@executable_path/Frameworks"
-)
-
-set_target_properties(%ProjectName% PROPERTIES
-    XCODE_ATTRIBUTE_SUPPORTS_MACCATALYST "YES"
-)
-
-set_target_properties(%ProjectName% PROPERTIES
-    MACOSX_BUNDLE TRUE
-    MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/Info.plist
-    XCODE_ATTRIBUTE_ENABLE_BITCODE "NO"
-    XCODE_ATTRIBUTE_DEAD_CODE_STRIPPING "NO"
-    XCODE_EMIT_EFFECTIVE_PLATFORM_NAME "YES"
-    RESOURCE "${APP_RESOURCES}"
-)
-
-set(HARDENED_RUNTIME
-%HardenedRuntime%
-)
-
-set(HARDENED_RUNTIME_USE_ENTITLEMENTS_FILE
-%HardenedRuntimeUseEntitlementsFile%
-)
-
-if("${HARDENED_RUNTIME}")
-  set_target_properties(%ProjectName% PROPERTIES XCODE_ATTRIBUTE_ENABLE_HARDENED_RUNTIME "YES")
-  if("${HARDENED_RUNTIME_USE_ENTITLEMENTS_FILE}")
-    set_target_properties(%ProjectName% PROPERTIES XCODE_ATTRIBUTE_CODE_SIGN_ENTITLEMENTS "app.entitlements")
-    add_custom_command(
-      TARGET %ProjectName% POST_BUILD
-      COMMAND if test \"$CODE_SIGN_IDENTITY\"\; then codesign -fs \"$CODE_SIGN_IDENTITY\" $CODESIGNING_FOLDER_PATH/Contents/Resources/*.dylib\; fi
-      )
-  endif()
-endif()
-
 # FIXME: `XCODE_ATTRIBUTE_DEAD_CODE_STRIPPING` should not be NO
 
-if(FORCE_AOT)
-    target_link_libraries(
-        %ProjectName%
-        runtime_one
-        runtime_two
-        "-framework Foundation"
-        "-framework Security"
-        "-framework UIKit"
-        %FrameworksToLink%
-        "-lz"
-        "-lc++"
-        "-liconv"
-    )
-else()
-    target_link_libraries(
-        %ProjectName%
-        "-framework Foundation"
-       "-framework Security"
-        "-framework UIKit"
-        %FrameworksToLink%
-        "-lz"
-        "-lc++"
-        "-liconv"
-        %NativeLibrariesToLink%
-    )
-endif()
