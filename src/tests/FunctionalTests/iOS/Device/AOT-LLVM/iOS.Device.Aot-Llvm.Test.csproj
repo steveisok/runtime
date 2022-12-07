@@ -10,8 +10,9 @@
     <MainLibraryFileName>iOS.Device.Aot-Llvm.Test.dll</MainLibraryFileName>
     <IncludesTestRunner>false</IncludesTestRunner>
     <ExpectedExitCode>42</ExpectedExitCode>
-    <EnableAggressiveTrimming>true</EnableAggressiveTrimming>
+    <!-- <EnableAggressiveTrimming>true</EnableAggressiveTrimming> -->
     <MonoEnableLLVM>true</MonoEnableLLVM>
+    <ExportUnmanagedCallersOnlyMethods>true</ExportUnmanagedCallersOnlyMethods>
   </PropertyGroup>
 
   <ItemGroup>

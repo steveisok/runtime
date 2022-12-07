@@ -187,6 +187,7 @@ typedef struct MonoAotOptions {
 	char *outfile;
 	char *llvm_outfile;
 	char *data_outfile;
+    char *export_symbols_outfile;
 	GList *profile_files;
 	GList *mibc_profile_files;
 	gboolean save_temps;
@@ -406,6 +407,7 @@ typedef struct MonoAotCompile {
 	FILE *logfile;
 	FILE *instances_logfile;
 	FILE *data_outfile;
+    FILE *export_symbols_outfile;
 	int datafile_offset;
 	int gc_name_offset;
 	// In this mode, we are emitting dedupable methods that we encounter
@@ -4679,6 +4681,7 @@ mono_aot_can_enter_interp (MonoMethod *method)
 static void
 add_wrappers (MonoAotCompile *acfg)
 {
+    g_print ("MIHW add_wrappers.\n");
 	MonoMethod *method, *m;
 	MonoMethodSignature *sig, *csig;
 	guint32 token;
@@ -5103,8 +5106,17 @@ add_wrappers (MonoAotCompile *acfg)
 		}
 	}
 
+    if (acfg->aot_opts.export_symbols_outfile) {
+        acfg->export_symbols_outfile = fopen (acfg->aot_opts.export_symbols_outfile, "w+");
+        if (!acfg->export_symbols_outfile) {
+            fprintf (stderr, "Unable to create file '%s': %s\n", acfg->aot_opts.export_symbols_outfile, strerror (errno));
+        }
+    }
+
+    g_print ("MITCHHWANG native-to-managed wrappers start.\n");
 	/* native-to-managed wrappers */
 	rows = table_info_get_rows (&acfg->image->tables [MONO_TABLE_METHOD]);
+    g_print ("MITCHHWANG rows '%d'.\n", rows);
 	for (int i = 0; i < rows; ++i) {
 		ERROR_DECL (error);
 
@@ -5121,13 +5133,17 @@ add_wrappers (MonoAotCompile *acfg)
 		 * name to avoid defining a new assembly to contain it.
 		 */
 		cattr = mono_custom_attrs_from_method_checked (method, error);
+        char *name = mono_method_get_full_name (method);
 		if (!is_ok (error)) {
-			char *name = mono_method_get_full_name (method);
 			report_loader_error (acfg, error, TRUE, "Failed to load custom attributes from method %s due to %s\n", name, mono_error_get_message (error));
-			g_free (name);
 		}
+        g_print ("MITCHHWANG method '%s'.\n", name);
+        g_free (name);
 
 		if (cattr) {
+            for (j = 0; j < cattr->num_attrs; ++j)
+                g_print ("MITCHHWANG cattr[%d] class '%s'.\n", j, m_class_get_name (cattr->attrs [j].ctor->klass));
+
 			for (j = 0; j < cattr->num_attrs; ++j)
 				if (cattr->attrs [j].ctor && !strcmp (m_class_get_name (cattr->attrs [j].ctor->klass), "MonoPInvokeCallbackAttribute"))
 					break;
@@ -5219,6 +5235,7 @@ MONO_RESTORE_WARNING
 					g_hash_table_insert (acfg->export_names, wrapper, export_name);
 			}
 
+            g_print ("MITCHHWANG num_attrs '%d'.\n", cattr->num_attrs);
 			for (j = 0; j < cattr->num_attrs; ++j)
 				if (cattr->attrs [j].ctor && mono_is_corlib_image (m_class_get_image (cattr->attrs [j].ctor->klass)) && !strcmp (m_class_get_name (cattr->attrs [j].ctor->klass), "UnmanagedCallersOnlyAttribute"))
 					break;
@@ -5237,6 +5254,7 @@ MONO_RESTORE_WARNING
 
 				MonoDecodeCustomAttr *decoded_args = mono_reflection_create_custom_attr_data_args_noalloc (acfg->image, e->ctor, e->data, e->data_size, error);
 				mono_error_assert_ok (error);
+                g_print ("MITCHHWANG decoded_args->named_args_num '%d'.\n", decoded_args->named_args_num);
 				for (j = 0; j < decoded_args->named_args_num; ++j) {
 					if (decoded_args->named_args_info [j].field && !strcmp (decoded_args->named_args_info [j].field->name, "EntryPoint")) {
 						named = (const char *)decoded_args->named_args[j]->value.primitive;
@@ -5252,18 +5270,33 @@ MONO_RESTORE_WARNING
 				mono_error_assert_ok (error);
 
 				add_method (acfg, wrapper);
-				if (export_name)
+				if (export_name) {
+                    g_print ("MITCHHWANG export_name '%s'.\n", export_name);
 					g_hash_table_insert (acfg->export_names, wrapper, export_name);
+
+                    if (acfg->export_symbols_outfile)
+                        fprintf (acfg->export_symbols_outfile, "%s\n", export_name);
+                } else {
+                    g_print ("MITCHHWANG no export_name '%s'.\n", export_name);
+                }
 			}
 
 			g_free (cattr);
-		}
+		} else {
+            g_print ("MITCHHWANG no cattr.\n");
+        }
 
 		if ((method->flags & METHOD_ATTRIBUTE_PINVOKE_IMPL) ||
 			(method->iflags & METHOD_IMPL_ATTRIBUTE_INTERNAL_CALL)) {
 			add_method (acfg, mono_marshal_get_native_wrapper (method, TRUE, TRUE));
 		}
 	}
+    g_print ("MITCHHWANG native-to-managed wrappers end.\n");
+
+    if (acfg->aot_opts.export_symbols_outfile) {
+        g_free (acfg->aot_opts.export_symbols_outfile);
+	    fclose (acfg->export_symbols_outfile);
+    }
 
 	/* StructureToPtr/PtrToStructure wrappers */
 	rows = table_info_get_rows (&acfg->image->tables [MONO_TABLE_TYPEDEF]);
@@ -8445,6 +8478,8 @@ mono_aot_parse_options (const char *aot_options, MonoAotOptions *opts)
 			opts->outfile = g_strdup (arg + strlen ("outfile="));
 		} else if (str_begins_with (arg, "llvm-outfile=")) {
 			opts->llvm_outfile = g_strdup (arg + strlen ("llvm-outfile="));
+        } else if (str_begins_with (arg, "export-symbols-outfile=")) {
+            opts->export_symbols_outfile = g_strdup (arg + strlen ("export-symbols-outfile="));
 		} else if (str_begins_with (arg, "temp-path=")) {
 			opts->temp_path = clean_path (g_strdup (arg + strlen ("temp-path=")));
 		} else if (str_begins_with (arg, "save-temps")) {
@@ -8631,6 +8666,7 @@ mono_aot_parse_options (const char *aot_options, MonoAotOptions *opts)
 			printf ("    direct-icalls\n");
 			printf ("    direct-pinvoke\n");
 			printf ("    dwarfdebug\n");
+            printf ("    export-symbols-outfile=\n");
 			printf ("    full\n");
 			printf ("    hybrid\n");
 			printf ("    info\n");
@@ -12485,6 +12521,7 @@ should_emit_gsharedvt_method (MonoAotCompile *acfg, MonoMethod *method)
 static gboolean
 collect_methods (MonoAotCompile *acfg)
 {
+    g_print ("MIHW collect_methods\n");
 	int mindex, i;
 	MonoImage *image = acfg->image;
 
@@ -14264,6 +14301,7 @@ mono_setup_dedup_state (MonoAotCompile *acfg, MonoAotState **global_aot_state, M
 int
 mono_compile_deferred_assemblies (guint32 opts, const char *aot_options, gpointer **aot_state)
 {
+    g_print ("MIHW mono_compile_deferred_assemblies.\n");
 	// create assembly, loop and add extra_methods
 	// in add_generic_instances , rip out what's in that for loop
 	// and apply that to this aot_state inside of mono_compile_assembly
@@ -14358,6 +14396,7 @@ add_interp_in_wrapper_for_sig (MonoAotCompile *acfg, MonoMethodSignature *sig)
 int
 mono_compile_assembly (MonoAssembly *ass, guint32 opts, const char *aot_options, gpointer **global_aot_state)
 {
+    g_print ("MIHW mono_compile_assembly.\n");
 	MonoImage *image = ass->image;
 	int res;
 	MonoAotCompile *acfg;

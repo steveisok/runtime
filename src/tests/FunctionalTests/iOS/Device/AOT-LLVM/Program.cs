@@ -8,8 +8,21 @@ using System.Runtime.InteropServices;
 
 public static class Program
 {
+    // Defined in main.m
+    [DllImport("__Internal")]
+    private static extern void ios_set_text(string value);
+
     [DllImport("__Internal")]
     public static extern void mono_ios_set_summary (string value);
+
+    private static int counter = 0;
+
+    // Called by native code, see main.m
+    [UnmanagedCallersOnly]
+    private static void OnButtonClick()
+    {
+        ios_set_text("OnButtonClick! #" + counter++);
+    }
 
     public static int Main(string[] args)
     {

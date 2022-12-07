@@ -52,6 +52,7 @@ target_link_libraries(
     "-lc++"
     "-liconv"
     "-Wl,-unexported_symbols_list symbols.txt"
+    %ExportSymbolsToLink%
     %NativeLibrariesToLink%
 )
 

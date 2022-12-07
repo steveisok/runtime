@@ -66,6 +66,7 @@
         OutputDir="$(PublishDir)"
         IntermediateOutputPath="$(IntermediateOutputPath)"
         UseLLVM="$(UseLLVM)"
+        ExportUnmanagedCallersOnlyMethods="true"
         LLVMPath="$(MonoAotCrossDir)">
         <Output TaskParameter="CompiledAssemblies" ItemName="BundleAssemblies" />
     </MonoAOTCompiler>

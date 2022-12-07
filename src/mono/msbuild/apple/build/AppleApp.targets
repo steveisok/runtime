@@ -97,6 +97,7 @@
         AotModulesTablePath="$(AppleAppBundleDir)\modules.m"
         AotModulesTableLanguage="ObjC"
         UseLLVM="$(MonoEnableLLVM)"
+        ExportUnmanagedCallersOnlyMethods="$(ExportUnmanagedCallersOnlyMethods)"
         LLVMPath="$(MonoAotCrossDir)"
         IntermediateOutputPath="$(_MobileIntermediateOutputPath)">
         <Output TaskParameter="CompiledAssemblies" ItemName="_AppleAssembliesInternal" />

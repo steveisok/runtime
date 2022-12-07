@@ -1391,6 +1391,7 @@ typedef struct
 
 static void main_thread_handler (gpointer user_data)
 {
+    g_print ("MIHW main_thread_handler.\n");
 	MainThreadArgs *main_args = (MainThreadArgs *)user_data;
 	MonoAssembly *assembly;
 

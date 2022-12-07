@@ -1,8 +1,8 @@
 MONO_CONFIG?=Debug
-MONO_ARCH?=x64
+MONO_ARCH?=arm64
 DOTNET := ../../../../dotnet.sh
 USE_LLVM=true
-AOT?=false
+AOT?=true
 TARGET?=iOSSimulator
 DEPLOY_AND_RUN?=true
 APP_SANDBOX?=false

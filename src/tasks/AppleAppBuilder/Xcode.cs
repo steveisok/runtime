@@ -136,6 +136,7 @@ internal sealed class Xcode
         IEnumerable<string> asmFiles,
         IEnumerable<string> asmDataFiles,
         IEnumerable<string> asmLinkFiles,
+        IEnumerable<string> exportSymbolsFiles,
         string workspace,
         string binDir,
         string monoInclude,
@@ -151,7 +152,7 @@ internal sealed class Xcode
         string? runtimeComponents=null,
         string? nativeMainSource = null)
     {
-        var cmakeDirectoryPath = GenerateCMake(projectName, entryPointLib, asmFiles, asmDataFiles, asmLinkFiles, workspace, binDir, monoInclude, preferDylibs, useConsoleUiTemplate, forceAOT, forceInterpreter, invariantGlobalization, optimized, enableRuntimeLogging, enableAppSandbox, diagnosticPorts, runtimeComponents, nativeMainSource);
+        var cmakeDirectoryPath = GenerateCMake(projectName, entryPointLib, asmFiles, asmDataFiles, asmLinkFiles, exportSymbolsFiles, workspace, binDir, monoInclude, preferDylibs, useConsoleUiTemplate, forceAOT, forceInterpreter, invariantGlobalization, optimized, enableRuntimeLogging, enableAppSandbox, diagnosticPorts, runtimeComponents, nativeMainSource);
         CreateXcodeProject(projectName, cmakeDirectoryPath);
         return Path.Combine(binDir, projectName, projectName + ".xcodeproj");
     }
@@ -194,6 +195,7 @@ internal sealed class Xcode
         IEnumerable<string> asmFiles,
         IEnumerable<string> asmDataFiles,
         IEnumerable<string> asmLinkFiles,
+        IEnumerable<string> exportSymbolsFiles,
         string workspace,
         string binDir,
         string monoInclude,
@@ -272,7 +274,25 @@ internal sealed class Xcode
             .Replace("%MonoInclude%", monoInclude)
             .Replace("%HardenedRuntime%", hardenedRuntime ? "TRUE" : "FALSE");
 
-        string toLink = "";
+        string exportSymbolsToLink = "";
+
+        foreach (string exportSymbolsFile in exportSymbolsFiles)
+        {
+            if (!File.Exists(exportSymbolsFile))
+            {
+                Logger.LogMessage(MessageImportance.High, $"\nCouldn't find export symbols file: {exportSymbolsFile}, skipping.\n");
+                continue;
+            }
+            FileInfo exportSymbolsFileInfo = new FileInfo(exportSymbolsFile);
+            if (exportSymbolsFileInfo.Length <= 0)
+            {
+                Logger.LogMessage(MessageImportance.High, $"\nFile '{exportSymbolsFile}' has size {exportSymbolsFileInfo.Length} <= 0, skipping.\n");
+                continue;
+            }
+            exportSymbolsToLink += $"    {exportSymbolsFile}{Environment.NewLine}";
+        }
+
+        string nativeLibsToLink = "";
 
         string[] allComponentLibs = Directory.GetFiles(workspace, "libmono-component-*-static.a");
         string[] staticComponentStubLibs = Directory.GetFiles(workspace, "libmono-component-*-stub-static.a");
@@ -314,7 +334,7 @@ internal sealed class Xcode
                 componentLibToLink = staticComponentStubLib;
             }
 
-            toLink += $"    \"-force_load {componentLibToLink}\"{Environment.NewLine}";
+            nativeLibsToLink += $"    \"-force_load {componentLibToLink}\"{Environment.NewLine}";
         }
 
         string[] dylibs = Directory.GetFiles(workspace, "*.dylib");
@@ -332,7 +352,7 @@ internal sealed class Xcode
             {
                 // these libraries are pinvoked
                 // -force_load will be removed once we enable direct-pinvokes for AOT
-                toLink += $"    \"-force_load {lib}\"{Environment.NewLine}";
+                nativeLibsToLink += $"    \"-force_load {lib}\"{Environment.NewLine}";
             }
         }
 
@@ -362,7 +382,8 @@ internal sealed class Xcode
         }
 
         cmakeLists = cmakeLists.Replace("%FrameworksToLink%", frameworks);
-        cmakeLists = cmakeLists.Replace("%NativeLibrariesToLink%", toLink);
+        cmakeLists = cmakeLists.Replace("%ExportSymbolsToLink%", exportSymbolsToLink);
+        cmakeLists = cmakeLists.Replace("%NativeLibrariesToLink%", nativeLibsToLink);
         cmakeLists = cmakeLists.Replace("%AotModulesSource%", string.IsNullOrEmpty(aotSources) ? "" : "modules.m");
 
         var defines = new StringBuilder();

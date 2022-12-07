@@ -199,12 +199,14 @@ public class AppleAppBuilderTask : Task
         List<string> assemblerFiles = new List<string>();
         List<string> assemblerDataFiles = new List<string>();
         List<string> assemblerFilesToLink = new List<string>();
+        List<string> exportSymbolsToLink = new List<string>();
         foreach (ITaskItem file in Assemblies)
         {
             // use AOT files if available
             string obj = file.GetMetadata("AssemblerFile");
             string llvmObj = file.GetMetadata("LlvmObjectFile");
             string dataFile = file.GetMetadata("AotDataFile");
+            string exportSymbols = file.GetMetadata("ExportSymbolsFile");
 
             if (!string.IsNullOrEmpty(obj))
             {
@@ -219,6 +221,11 @@ public class AppleAppBuilderTask : Task
             if (!string.IsNullOrEmpty(llvmObj))
             {
                 assemblerFilesToLink.Add(llvmObj);
+            }
+
+            if (!string.IsNullOrEmpty(exportSymbols))
+            {
+                exportSymbolsToLink.Add(exportSymbols);
             }
         }
 
@@ -251,7 +258,7 @@ public class AppleAppBuilderTask : Task
 
         if (GenerateXcodeProject)
         {
-            XcodeProjectPath = generator.GenerateXCode(ProjectName, MainLibraryFileName, assemblerFiles, assemblerDataFiles, assemblerFilesToLink,
+            XcodeProjectPath = generator.GenerateXCode(ProjectName, MainLibraryFileName, assemblerFiles, assemblerDataFiles, assemblerFilesToLink, exportSymbolsToLink,
                 AppDir, binDir, MonoRuntimeHeaders, !isDevice, UseConsoleUITemplate, ForceAOT, ForceInterpreter, InvariantGlobalization, Optimized, EnableRuntimeLogging, EnableAppSandbox, DiagnosticPorts, RuntimeComponents, NativeMainSource);
 
             if (BuildAppBundle)
@@ -269,7 +276,7 @@ public class AppleAppBuilderTask : Task
         }
         else if (GenerateCMakeProject)
         {
-             generator.GenerateCMake(ProjectName, MainLibraryFileName, assemblerFiles, assemblerDataFiles, assemblerFilesToLink,
+             generator.GenerateCMake(ProjectName, MainLibraryFileName, assemblerFiles, assemblerDataFiles, assemblerFilesToLink, exportSymbolsToLink,
                 AppDir, binDir, MonoRuntimeHeaders, !isDevice, UseConsoleUITemplate, ForceAOT, ForceInterpreter, InvariantGlobalization, Optimized, EnableRuntimeLogging, EnableAppSandbox, DiagnosticPorts, RuntimeComponents, NativeMainSource);
         }
 
