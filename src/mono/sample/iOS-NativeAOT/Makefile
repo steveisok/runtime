@@ -4,13 +4,13 @@ TOP=../../../../
 
 BUILD_CONFIG?=Debug
 TARGET_ARCH?=$(shell . $(TOP)eng/native/init-os-and-arch.sh && echo $${arch})
-TARGET_OS?=iossimulator
+TARGET_OS?=ios
 DEPLOY_AND_RUN?=false
 STRIP_DEBUG_SYMBOLS?=false
 
 REPO_DIR=$(realpath $(TOP))
 TASKS_DIR=$(REPO_DIR)/src/tasks
-DOTNET=$(REPO_DIR)/dotnet.sh
+DOTNET=/Users/steve/dev/temp-sdk/dotnet
 BUILD_SCRIPT=$(REPO_DIR)/build.sh
 
 world: build-deps all
@@ -38,13 +38,13 @@ appbuilder:
 	$(DOTNET) build -c $(BUILD_CONFIG) $(TASKS_DIR)/AppleAppBuilder/AppleAppBuilder.csproj
 
 hello-app: clean
-	$(DOTNET) \
-	build -c $(BUILD_CONFIG) \
-	-p:TargetOS=$(TARGET_OS) \
-	-p:TargetArchitecture=$(TARGET_ARCH) \
-	-p:DeployAndRun=$(DEPLOY_AND_RUN) \
-	-p:StripDebugSymbols=$(STRIP_DEBUG_SYMBOLS) \
-	-bl
+	$(DOTNET) build \
+	-c $(BUILD_CONFIG) \
+	/p:TargetOS=$(TARGET_OS) \
+	/p:TargetArchitecture=$(TARGET_ARCH) \
+	/p:StripDebugSymbols=$(STRIP_DEBUG_SYMBOLS) \
+	/p:DeployAndRun=$(DEPLOY_AND_RUN) \
+	/bl
 
 clean:
 	rm -rf obj bin

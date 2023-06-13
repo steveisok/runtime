@@ -15,6 +15,10 @@
              TaskName="ILStrip"
              AssemblyFile="$(MonoTargetsTasksAssemblyPath)" />
 
+  <!-- Fix temporary regression, will be fixed on the main in a separate PR: https://github.com/dotnet/runtime/issues/80911 -->
+  <Import Condition="'$(UseNativeAOTRuntime)' == 'true'"
+          Project="$(ILCompilerTargetsPath)" />
+
   <Target Name="_CleanPublish" 
           BeforeTargets="Build">
     <RemoveDir Directories="$(PublishDir)" />
@@ -110,9 +114,7 @@
     </ItemGroup>
   </Target>
 
-  <Target Name="_AppleAotCompile"
-          Condition="'$(RunAOTCompilation)' == 'true'">
-
+  <Target Name="_AppleAotCompile">
     <PropertyGroup>
       <_AOTMode Condition="'$(UseMonoJustInterp)' != 'true'">Full</_AOTMode>
       <_AOTMode Condition="'$(UseMonoJustInterp)' == 'true'">JustInterp</_AOTMode>
@@ -225,6 +227,8 @@
     </ItemGroup>
   </Target>
 
+  <Target Name="_AppleNativeAotCompile"
+          DependsOnTargets="SetupProperties;ComputeIlcCompileInputs;IlcCompile" />
 
   <Target Name="_AppleGenerateAppBundle" 
           Condition="'$(AppleGenerateAppBundle)' == 'true'"

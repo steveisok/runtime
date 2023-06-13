@@ -2,7 +2,8 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <OutputPath>bin</OutputPath>
-    <IntermediateOutputPath>$(MSBuildThisFileDirectory)/obj/</IntermediateOutputPath>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IntermediateOutputPath>$(MSBuildThisFileDirectory)obj/</IntermediateOutputPath>
     <TargetFramework>$(NetCoreAppCurrent)</TargetFramework>
     <TargetOS Condition="'$(TargetOS)' == ''">ios</TargetOS>
     <TargetOS Condition="'$(TargetsiOSSimulator)' == 'true'">iossimulator</TargetOS>
@@ -14,10 +15,12 @@
     <NativeLib>static</NativeLib>
     <CustomNativeMain>true</CustomNativeMain>
     <UseNativeAOTRuntime Condition="'$(UseNativeAOTRuntime)' == ''">true</UseNativeAOTRuntime>
+    <!--<PublishAot>true</PublishAot>-->
+    <PublishAotUsingRuntimePack>true</PublishAotUsingRuntimePack>
     <!-- FIXME: Once we support building System.Globalization.Native and icu, should be removed -->
     <InvariantGlobalization>true</InvariantGlobalization>
-    <!-- FIXME: We do not use publish targets yet, but we need to create a publish directory -->
-    <PublishDir Condition="'$(PublishDir)' == ''">$(OutputPath)/publish</PublishDir>
+
+    <ILCompilerTargetsPath>$([MSBuild]::NormalizePath('$(NativeAotTargetsPath)', 'Microsoft.DotNet.ILCompiler.SingleEntry.targets'))</ILCompilerTargetsPath>
   </PropertyGroup>
 
   <ItemGroup>
@@ -25,26 +28,7 @@
     <DirectPInvoke Include="__Internal" />
   </ItemGroup>
 
-  <PropertyGroup Condition="'$(TargetOS)' == 'maccatalyst'">
-    <DevTeamProvisioning Condition="'$(DevTeamProvisioning)' == ''">adhoc</DevTeamProvisioning>
-    <EnableAppSandbox Condition="'$(EnableAppSandbox)' == ''">false</EnableAppSandbox>
-  </PropertyGroup>
-  <!-- Fix temporary regression, will be fixed on the main in a separate PR: https://github.com/dotnet/runtime/issues/80911 -->
-  <Import Project="$(CoreClrProjectRoot)nativeaot\BuildIntegration\Microsoft.DotNet.ILCompiler.SingleEntry.targets" />
-  <UsingTask TaskName="AppleAppBuilderTask"
-             AssemblyFile="$(AppleAppBuilderTasksAssemblyPath)" />
-
-  <!-- FIXME: Once we set up builing appropriate runtime package for iOS-like platforms the following properties should be removed -->
-  <Target Name="ConfigureIlcPathsForiOSCrossCompilation">
-      <PropertyGroup>
-        <IlcPath>$([MSBuild]::NormalizeDirectory('$(RepoRoot)', 'artifacts', 'bin', 'coreclr', '$(HostOS).$(BuildArchitecture).$(CoreCLRConfiguration)', 'ilc'))</IlcPath>
-        <IlcToolsPath>$(IlcPath)</IlcToolsPath>
-        <IlcSdkPath>$(CoreCLRAotSdkDir)</IlcSdkPath>
-        <IlcFrameworkPath>$(LibrariesAllBinArtifactsPath)</IlcFrameworkPath>
-        <IlcFrameworkNativePath>$(LibrariesAllBinArtifactsPath)</IlcFrameworkNativePath>
-    </PropertyGroup>
-  </Target>
-
+<!--  
   <Target Name="BuildAppBundle"
     AfterTargets="Build"
     DependsOnTargets="ConfigureIlcPathsForiOSCrossCompilation;SetupProperties;ComputeIlcCompileInputs;IlcCompile">
@@ -84,12 +68,5 @@
     <Message Importance="High" Text="App:   $(AppBundlePath)"/>
 
   </Target>
-
-  <Target Name="RunAppBundle"
-          AfterTargets="BuildAppBundle"
-          Condition="'$(DeployAndRun)' == 'true'">
-    <Exec Condition="'$(TargetOS)' == 'iossimulator'" Command="dotnet xharness apple run --app=$(AppBundlePath) --targets=ios-simulator-64 --output-directory=/tmp/out" />
-    <Exec Condition="'$(TargetOS)' == 'ios'" Command="dotnet xharness apple run --app=$(AppBundlePath) --targets=ios-device --output-directory=/tmp/out" />
-  </Target>
-
+-->
 </Project>
