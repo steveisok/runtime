@@ -23,7 +23,7 @@ variables:
   - name: Codeql.BuildIdentifier
     value: $(System.JobDisplayName)
   - name: Codeql.Language
-    value: cpp,csharp,java,python
+    value: cpp,csharp,java,python,javascript
 
 extends:
   template:  /eng/pipelines/common/templates/pipeline-with-resources.yml
@@ -67,6 +67,28 @@ extends:
           - windows_x64
           jobParameters:
             buildArgs: -s mono+libs+host+packs -c $(_BuildConfig)
+            nameSuffix: AllSubsets_Mono
+            isOfficialBuild: ${{ variables.isOfficialBuild }}
+            timeoutInMinutes: 360
+            preBuildSteps:
+              - task: CodeQL3000Init@0
+                displayName: Initialize CodeQL (manually-injected)
+            postBuildSteps:
+              - task: CodeQL3000Finalize@0
+                displayName: Finalize CodeQL (manually-injected)
+      
+      #
+      # Build wasm runtime pack (for javascript)
+      #
+      - template: /eng/pipelines/common/platform-matrix.yml
+        parameters:
+          jobTemplate: /eng/pipelines/common/global-build-job.yml
+          buildConfig: release
+          runtimeFlavor: mono
+          platforms:
+          - browser_wasm
+          jobParameters:
+            buildArgs: -s mono+libs+host+packs -c $(_BuildConfig) /p:AotHostArchitecture=x64 /p:AotHostOS=$(_hostedOS)
             nameSuffix: AllSubsets_Mono
             isOfficialBuild: ${{ variables.isOfficialBuild }}
             timeoutInMinutes: 360
