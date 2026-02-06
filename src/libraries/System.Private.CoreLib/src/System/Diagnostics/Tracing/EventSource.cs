@@ -1439,6 +1439,247 @@ namespace System.Diagnostics.Tracing
         }
 
         /// <summary>
+        /// Defines an event with pre-computed metadata without using reflection.
+        /// This method is intended for use by source generators to enable AOT-compatible
+        /// and trim-safe event definitions.
+        /// </summary>
+        /// <param name="eventId">A unique identifier for this event within the EventSource (must be positive).</param>
+        /// <param name="eventName">The name of the event.</param>
+        /// <param name="level">The severity level of the event.</param>
+        /// <param name="keywords">The keywords associated with the event for filtering.</param>
+        /// <param name="opcode">The operation code for the event.</param>
+        /// <param name="task">The task identifier for the event.</param>
+        /// <param name="tags">Optional tags for the event.</param>
+        /// <param name="message">Optional message template for the event.</param>
+        /// <returns>An event handle that can be passed to <see cref="WriteEventDirect"/>.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="eventName"/> is null.</exception>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="eventId"/> is less than or equal to zero.</exception>
+        [CLSCompliant(false)]
+        protected nint DefineEvent(
+            int eventId,
+            string eventName,
+            EventLevel level,
+            EventKeywords keywords,
+            EventOpcode opcode = EventOpcode.Info,
+            EventTask task = EventTask.None,
+            EventTags tags = EventTags.None,
+            string? message = null)
+        {
+            if (!IsSupported)
+            {
+                return 0;
+            }
+
+            ArgumentNullException.ThrowIfNull(eventName);
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(eventId);
+
+            var descriptor = new EventDescriptor(
+                eventId,
+                version: 0,
+                channel: 0,
+                (byte)level,
+                (byte)opcode,
+                (int)task,
+                (long)keywords);
+
+            var metadata = new EventMetadata
+            {
+                Descriptor = descriptor,
+                Tags = tags,
+                Name = eventName,
+                Message = message,
+                Parameters = Array.Empty<ParameterInfo>(),
+                EventListenerParameterCount = 0,
+                AllParametersAreString = true,
+                AllParametersAreInt32 = true
+            };
+
+            m_eventData ??= new Dictionary<int, EventMetadata>();
+            m_eventData[eventId] = metadata;
+
+            nint eventHandle = 0;
+#if FEATURE_PERFTRACING
+            if (m_eventPipeProvider != null)
+            {
+                byte[]? eventMetadata = EventPipeMetadataGenerator.Instance.GenerateEventMetadata(metadata);
+                uint metadataLength = eventMetadata != null ? (uint)eventMetadata.Length : 0;
+
+                unsafe
+                {
+                    fixed (byte* pMetadata = eventMetadata)
+                    {
+                        eventHandle = m_eventPipeProvider._eventProvider.DefineEventHandle(
+                            (uint)eventId,
+                            eventName,
+                            (long)keywords,
+                            0, // version
+                            (uint)level,
+                            pMetadata,
+                            metadataLength);
+
+                        m_eventData[eventId] = metadata with { EventHandle = eventHandle };
+                    }
+                }
+            }
+#endif
+
+            return eventHandle;
+        }
+
+        /// <summary>
+        /// Writes an event using a pre-defined event handle, bypassing reflection-based metadata lookup.
+        /// This method is intended for use by source generators to enable AOT-compatible and trim-safe event writing.
+        /// </summary>
+        /// <param name="eventId">The event ID as defined in <see cref="DefineEvent"/>.</param>
+        /// <param name="eventHandle">The event handle returned from <see cref="DefineEvent"/>.</param>
+        /// <param name="activityId">Optional pointer to the activity ID for this event.</param>
+        /// <param name="relatedActivityId">Optional pointer to a related activity ID.</param>
+        /// <param name="eventDataCount">The number of <see cref="EventData"/> items.</param>
+        /// <param name="data">Pointer to the event data.</param>
+        [CLSCompliant(false)]
+        protected unsafe void WriteEventDirect(
+            int eventId,
+            nint eventHandle,
+            Guid* activityId,
+            Guid* relatedActivityId,
+            int eventDataCount,
+            EventData* data)
+        {
+            if (!IsEnabled())
+            {
+                return;
+            }
+
+            Debug.Assert(m_eventData != null);
+
+            ref EventMetadata metadata = ref CollectionsMarshal.GetValueRefOrNullRef(m_eventData, eventId);
+            if (Unsafe.IsNullRef(ref metadata))
+            {
+                return;
+            }
+
+            if (!SelfDescribingEvents)
+            {
+                if (metadata.EnabledForETW && !m_etwProvider.WriteEvent(ref metadata.Descriptor, eventHandle, activityId, relatedActivityId, eventDataCount, (IntPtr)data))
+                    ThrowEventSourceException(metadata.Name);
+#if FEATURE_PERFTRACING
+                if (metadata.EnabledForEventPipe && !m_eventPipeProvider.WriteEvent(ref metadata.Descriptor, eventHandle, activityId, relatedActivityId, eventDataCount, (IntPtr)data))
+                    ThrowEventSourceException(metadata.Name);
+#endif
+            }
+
+            if (m_Dispatchers != null && metadata.EnabledForAnyListener)
+            {
+                var eventCallbackArgs = new EventWrittenEventArgs(this, eventId, activityId, relatedActivityId);
+                WriteToAllListeners(eventCallbackArgs, eventDataCount, data);
+            }
+        }
+
+        /// <summary>
+        /// Writes a self-describing (TraceLogging-style) event with pre-computed metadata, bypassing reflection.
+        /// This method is intended for use by source generators to enable AOT-compatible and trim-safe
+        /// event writing for the Write&lt;T&gt; pattern.
+        /// </summary>
+        /// <param name="eventName">The name of the event.</param>
+        /// <param name="level">The severity level of the event.</param>
+        /// <param name="keywords">The keywords associated with the event.</param>
+        /// <param name="opcode">The operation code for the event.</param>
+        /// <param name="tags">Optional tags for the event.</param>
+        /// <param name="nameMetadata">Pointer to pre-computed name metadata.</param>
+        /// <param name="nameMetadataLength">Length of the name metadata.</param>
+        /// <param name="typeMetadata">Pointer to pre-computed type metadata describing the event fields.</param>
+        /// <param name="typeMetadataLength">Length of the type metadata.</param>
+        /// <param name="activityId">Optional pointer to the activity ID for this event.</param>
+        /// <param name="relatedActivityId">Optional pointer to a related activity ID.</param>
+        /// <param name="eventDataCount">The number of <see cref="EventData"/> items (including 3 metadata descriptors).</param>
+        /// <param name="data">Pointer to the event data (first 3 entries should be reserved for metadata descriptors).</param>
+        /// <remarks>
+        /// The caller must allocate <paramref name="eventDataCount"/> EventData entries where:
+        /// - data[0] will be filled with provider metadata
+        /// - data[1] will be filled with name metadata from <paramref name="nameMetadata"/>
+        /// - data[2] will be filled with type metadata from <paramref name="typeMetadata"/>
+        /// - data[3..] should contain the actual event payload data
+        /// </remarks>
+        [CLSCompliant(false)]
+        protected unsafe void WriteSelfDescribingEvent(
+            string eventName,
+            EventLevel level,
+            EventKeywords keywords,
+            EventOpcode opcode,
+            EventTags tags,
+            byte* nameMetadata,
+            int nameMetadataLength,
+            byte* typeMetadata,
+            int typeMetadataLength,
+            Guid* activityId,
+            Guid* relatedActivityId,
+            int eventDataCount,
+            EventData* data)
+        {
+            if (!IsEnabled(level, keywords))
+            {
+                return;
+            }
+
+            // Construct the event descriptor for self-describing events
+            var descriptor = new EventDescriptor(
+                0, // traceloggingId
+                (byte)level,
+                (byte)opcode,
+                (long)keywords);
+
+            var providerMetadata = ProviderMetadata;
+            fixed (byte* pProviderMetadata = providerMetadata)
+            {
+                // First 3 EventData entries are metadata (provider, name, type)
+                data[0].SetMetadata(pProviderMetadata, providerMetadata.Length, 2);
+                data[1].SetMetadata(nameMetadata, nameMetadataLength, 1);
+                data[2].SetMetadata(typeMetadata, typeMetadataLength, 1);
+
+                nint eventHandle = 0;
+#if FEATURE_PERFTRACING
+                // Define the event handle for EventPipe
+                if (m_eventPipeProvider != null)
+                {
+                    eventHandle = m_eventPipeProvider._eventProvider.DefineEventHandle(
+                        0,
+                        eventName,
+                        (long)keywords,
+                        0,
+                        (uint)level,
+                        typeMetadata,
+                        (uint)typeMetadataLength);
+                }
+#endif
+
+                WriteEventRaw(
+                    eventName,
+                    ref descriptor,
+                    eventHandle,
+                    activityId,
+                    relatedActivityId,
+                    eventDataCount,
+                    (IntPtr)data);
+
+                // Write to EventListeners if any are registered
+                if (m_Dispatchers != null)
+                {
+                    // Self-described events use -1 as the event ID
+                    var eventCallbackArgs = new EventWrittenEventArgs(this, -1, activityId, relatedActivityId)
+                    {
+                        EventName = eventName,
+                        Level = level,
+                        Keywords = keywords,
+                        Opcode = opcode,
+                        Tags = tags
+                    };
+
+                    DispatchToAllListeners(eventCallbackArgs);
+                }
+            }
+        }
+
+        /// <summary>
         /// This is a varargs helper for writing an event. It does create an array and box all the arguments so it is
         /// relatively inefficient and should only be used for relatively rare events (e.g. less than 100 / sec). If your
         /// rates are faster than that you should use <see cref="WriteEventCore"/> to create fast helpers for your particular

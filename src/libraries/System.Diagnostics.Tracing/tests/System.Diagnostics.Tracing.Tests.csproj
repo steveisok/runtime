@@ -39,6 +39,7 @@
     <Compile Include="BasicEventSourceTest\TestsManifestNegative.cs" />
     <Compile Include="BasicEventSourceTest\TestsTraits.cs" />
     <Compile Include="BasicEventSourceTest\TestsWriteEvent.cs" />
+    <Compile Include="BasicEventSourceTest\TestsWriteEventDirect.cs" />
     <Compile Include="BasicEventSourceTest\TestsWriteEventToListener.cs" />
     <Compile Include="BasicEventSourceTest\LoudListener.cs" />
     <Compile Include="BasicEventSourceTest\TestsWrite.cs" />
