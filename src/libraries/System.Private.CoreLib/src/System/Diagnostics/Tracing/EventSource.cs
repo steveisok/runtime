@@ -1497,6 +1497,17 @@ namespace System.Diagnostics.Tracing
             m_eventData ??= new Dictionary<int, EventMetadata>();
             m_eventData[eventId] = metadata;
 
+            // Update all existing dispatchers to know about this new event
+            EventDispatcher? dispatcher = m_Dispatchers;
+            while (dispatcher != null)
+            {
+                if (dispatcher.m_EventEnabled != null && !dispatcher.m_EventEnabled.ContainsKey(eventId))
+                {
+                    dispatcher.m_EventEnabled[eventId] = false;
+                }
+                dispatcher = dispatcher.m_Next;
+            }
+
             nint eventHandle = 0;
 #if FEATURE_PERFTRACING
             if (m_eventPipeProvider != null)

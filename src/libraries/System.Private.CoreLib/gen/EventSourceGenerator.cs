@@ -52,6 +52,25 @@ namespace Generators
             string ClassName,
             string SourceName,
             Guid Guid,
-            bool HasProviderMetadataProperty);
+            bool HasProviderMetadataProperty,
+            ImmutableArray<EventMethod> Events);
+
+        private sealed record EventMethod(
+            int EventId,
+            string MethodName,
+            string Message,
+            int Level,
+            long Keywords,
+            int Opcode,
+            int Task,
+            byte Version,
+            string Accessibility,
+            ImmutableArray<EventParameter> Parameters);
+
+        private sealed record EventParameter(
+            string Name,
+            string Type,
+            string FullyQualifiedType,
+            bool IsNullable);
     }
 }

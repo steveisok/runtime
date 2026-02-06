@@ -64,7 +64,7 @@ namespace Generators
                             isEnabledByDefault: true),
                         classDef.GetLocation(),
                         classDef.Identifier.ValueText);
-                    return new EventSourceClass(diagnostic, null, null, null, default, false);
+                    return new EventSourceClass(diagnostic, null, null, null, default, false, ImmutableArray<EventMethod>.Empty);
                 }
 
                 foreach (MemberDeclarationSyntax member in classDef.Members)
@@ -93,7 +93,7 @@ namespace Generators
                                     isEnabledByDefault: true),
                                 classDef.GetLocation(),
                                 classDef.Identifier.ValueText);
-                            return new EventSourceClass(diagnostic, null, null, null, default, false);
+                            return new EventSourceClass(diagnostic, null, null, null, default, false, ImmutableArray<EventMethod>.Empty);
                         }
                     }
                 }
@@ -127,20 +127,143 @@ namespace Generators
                 }
 
                 bool hasProviderMetadataProperty = false;
+                var events = ImmutableArray.CreateBuilder<EventMethod>();
+
                 foreach (MemberDeclarationSyntax member in classDef.Members)
                 {
                     if (member is PropertyDeclarationSyntax prop && prop.Identifier.Text == "ProviderMetadata")
                     {
                         hasProviderMetadataProperty = true;
-                        break;
+                    }
+
+                    if (member is MethodDeclarationSyntax methodDec)
+                    {
+                        var eventMethod = TryParseEventMethod(methodDec, context.SemanticModel, cancellationToken);
+                        if (eventMethod is not null)
+                        {
+                            events.Add(eventMethod);
+                        }
                     }
                 }
 
-                eventSourceClass = new EventSourceClass(null, nspace, className, name, result, hasProviderMetadataProperty);
+                eventSourceClass = new EventSourceClass(null, nspace, className, name, result, hasProviderMetadataProperty, events.ToImmutable());
                 continue;
             }
 
             return eventSourceClass;
+        }
+
+        private static EventMethod? TryParseEventMethod(MethodDeclarationSyntax methodDec, SemanticModel semanticModel, CancellationToken cancellationToken)
+        {
+            const string EventAttribute = "System.Diagnostics.Tracing.EventAttribute";
+
+            bool isPartial = false;
+            foreach (var modifier in methodDec.Modifiers)
+            {
+                if (modifier.IsKind(SyntaxKind.PartialKeyword))
+                {
+                    isPartial = true;
+                    break;
+                }
+            }
+
+            if (!isPartial)
+            {
+                return null;
+            }
+
+            if (methodDec.Body is not null || methodDec.ExpressionBody is not null)
+            {
+                return null;
+            }
+
+            var methodSymbol = semanticModel.GetDeclaredSymbol(methodDec, cancellationToken);
+            if (methodSymbol is null)
+            {
+                return null;
+            }
+
+            foreach (AttributeData attr in methodSymbol.GetAttributes())
+            {
+                if (attr.AttributeClass?.ToDisplayString() != EventAttribute)
+                {
+                    continue;
+                }
+
+                if (attr.ConstructorArguments.Length == 0)
+                {
+                    return null;
+                }
+
+                int eventId = (int)attr.ConstructorArguments[0].Value!;
+                string message = null;
+                int level = 4;
+                long keywords = 0;
+                int opcode = 0;
+                int task = 0;
+                byte version = 0;
+
+                foreach (var namedArg in attr.NamedArguments)
+                {
+                    switch (namedArg.Key)
+                    {
+                        case "Message":
+                            message = namedArg.Value.Value?.ToString();
+                            break;
+                        case "Level":
+                            level = (int)namedArg.Value.Value!;
+                            break;
+                        case "Keywords":
+                            keywords = Convert.ToInt64(namedArg.Value.Value);
+                            break;
+                        case "Opcode":
+                            opcode = (int)namedArg.Value.Value!;
+                            break;
+                        case "Task":
+                            task = (int)namedArg.Value.Value!;
+                            break;
+                        case "Version":
+                            version = (byte)namedArg.Value.Value!;
+                            break;
+                    }
+                }
+
+                var parameters = ImmutableArray.CreateBuilder<EventParameter>();
+                foreach (IParameterSymbol param in methodSymbol.Parameters)
+                {
+                    var eventParam = new EventParameter(
+                        param.Name,
+                        param.Type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
+                        param.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
+                        param.Type.NullableAnnotation == NullableAnnotation.Annotated);
+                    parameters.Add(eventParam);
+                }
+
+                string accessibility = methodSymbol.DeclaredAccessibility switch
+                {
+                    Accessibility.Public => "public",
+                    Accessibility.Internal => "internal",
+                    Accessibility.Protected => "protected",
+                    Accessibility.ProtectedOrInternal => "protected internal",
+                    Accessibility.ProtectedAndInternal => "private protected",
+                    Accessibility.Private => "private",
+                    _ => "internal"
+                };
+
+                return new EventMethod(
+                    eventId,
+                    methodSymbol.Name,
+                    message,
+                    level,
+                    keywords,
+                    opcode,
+                    task,
+                    version,
+                    accessibility,
+                    parameters.ToImmutable());
+            }
+
+            return null;
         }
 
         private static string ConstructNamespace(NamespaceDeclarationSyntax? ns)
