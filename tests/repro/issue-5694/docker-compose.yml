@@ -1,0 +1,18 @@
+services:
+  target-app:
+    build:
+      context: ./TargetApp
+    container_name: target-app
+
+  tracer:
+    image: mcr.microsoft.com/dotnet/nightly/sdk:10.0-azurelinux3.0
+    container_name: tracer
+    privileged: true
+    pid: host
+    volumes:
+      - /sys/kernel/tracing:/sys/kernel/tracing
+    stdin_open: true
+    tty: true
+    entrypoint: /bin/bash
+    depends_on:
+      - target-app
