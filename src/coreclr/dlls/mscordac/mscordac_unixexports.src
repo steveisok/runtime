@@ -127,3 +127,7 @@ nativeStringResourceTable_mscorrc
 #WriteFile
 
 #GUID_NULL
+
+; Android: HRESULT side-channel for cross-DSO exception handling
+DacSetLastErrorInt
+DacGetLastErrorInt

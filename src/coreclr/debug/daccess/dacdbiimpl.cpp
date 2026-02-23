@@ -60,6 +60,48 @@
 // Global allocator for DD. Access is protected under the g_dacMutex lock.
 IDacDbiInterface::IAllocator * g_pAllocator = NULL;
 
+#ifdef HOST_ANDROID
+#include <android/log.h>
+//-----------------------------------------------------------------------------
+// Approach B: Side-channel for preserving HRESULTs across the DAC→DBI
+// shared library boundary. On Android, libc++ does pointer-only RTTI
+// comparison for catch clauses, so EX_CATCH_HRESULT in the DBI cannot
+// extract the HRESULT from exceptions thrown in the DAC (it always gets
+// E_FAIL). We store the HRESULT here before throwing so the DBI can
+// retrieve it via DacGetLastErrorInt (resolved through dlsym).
+//-----------------------------------------------------------------------------
+static thread_local HRESULT tls_dac_last_error = S_OK;
+
+extern "C" __attribute__((visibility("default"))) HRESULT STDMETHODCALLTYPE DacSetLastErrorInt(HRESULT v)
+{
+    __android_log_print(ANDROID_LOG_INFO, "DOTNET",
+        "DacSetLastErrorInt: storing hr=0x%x", v);
+    tls_dac_last_error = v;
+    return S_OK;
+}
+
+extern "C" __attribute__((visibility("default"))) HRESULT STDMETHODCALLTYPE DacGetLastErrorInt(void)
+{
+    HRESULT temp = tls_dac_last_error;
+    tls_dac_last_error = S_OK;
+    __android_log_print(ANDROID_LOG_INFO, "DOTNET",
+        "DacGetLastErrorInt: returning hr=0x%x", temp);
+    return temp;
+}
+
+// Save the original ThrowHR as a function pointer before redefining it.
+static inline DECLSPEC_NORETURN void DacOriginalThrowHR(HRESULT hr)
+{
+    ThrowHR(hr);
+}
+
+// Redefine ThrowHR within this translation unit to save the HRESULT
+// before the throw. The DBI's DelegatingException::GetHR() will retrieve
+// it via DacGetLastErrorInt when the RTTI-based catch fails.
+#undef ThrowHR
+#define ThrowHR(hr) do { DacSetLastErrorInt(hr); DacOriginalThrowHR(hr); } while(0)
+#endif // HOST_ANDROID
+
 //---------------------------------------------------------------------------------------
 //
 // Extra sugar for wrapping IAllocator under friendly New/Delete operators.

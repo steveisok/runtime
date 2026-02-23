@@ -11,6 +11,10 @@
 #include "string.h"
 #include "ex.h"
 #include "holder.h"
+#ifdef HOST_ANDROID
+#include <dlfcn.h>
+#include <android/log.h>
+#endif
 
 // error codes
 #include "corerror.h"
@@ -884,9 +888,56 @@ HRESULT DelegatingException::GetHR()
     // Retrieve any delegating exception.
     Exception *pDelegate = GetDelegate();
 
-    // If there is a delegate exception, defer to it.  Otherwise,
-    //  default to E_FAIL.
-    return pDelegate ? pDelegate->GetHR() : E_FAIL;
+    // If there is a delegate exception, defer to it.
+    if (pDelegate != NULL)
+        return pDelegate->GetHR();
+
+#ifdef HOST_ANDROID
+    // On Android, libc++ uses pointer-only RTTI comparison for exception
+    // catch clauses. Since the DAC and DBI are separate DSOs with
+    // -fvisibility=hidden and -Bsymbolic, each has its own typeinfo for
+    // Exception/HRException. The typed catch fails and we land here in
+    // the catch-all path with no delegate. Retrieve the real HRESULT
+    // from the DAC's side-channel (DacSetLastErrorInt/DacGetLastErrorInt).
+    {
+        typedef HRESULT (STDMETHODCALLTYPE *DacGetFn)(void);
+        static DacGetFn s_dacGet = nullptr;
+        static bool s_resolved = false;
+        if (!s_resolved)
+        {
+            // The DAC is typically loaded with RTLD_LOCAL, so its symbols
+            // aren't in the global namespace. Use RTLD_NOLOAD to get a
+            // handle to the already-loaded DAC without changing its refcount.
+            void* dacHandle = dlopen("libmscordaccore.so", RTLD_NOLOAD | RTLD_LAZY);
+            if (dacHandle != nullptr)
+            {
+                s_dacGet = (DacGetFn)dlsym(dacHandle, "DacGetLastErrorInt");
+                __android_log_print(ANDROID_LOG_INFO, "DOTNET",
+                    "DelegatingException::GetHR: dlsym DacGetLastErrorInt = %p (via DAC handle %p)",
+                    (void*)s_dacGet, dacHandle);
+                dlclose(dacHandle); // just drops the NOLOAD ref, DAC stays loaded
+            }
+            else
+            {
+                __android_log_print(ANDROID_LOG_WARN, "DOTNET",
+                    "DelegatingException::GetHR: dlopen(RTLD_NOLOAD) failed: %s", dlerror());
+            }
+            s_resolved = true;
+        }
+        if (s_dacGet != nullptr)
+        {
+            HRESULT dacHr = s_dacGet();
+            if (dacHr != S_OK)
+            {
+                __android_log_print(ANDROID_LOG_INFO, "DOTNET",
+                    "DelegatingException::GetHR: recovered hr=0x%x from DAC side-channel", dacHr);
+                return dacHr;
+            }
+        }
+    }
+#endif // HOST_ANDROID
+
+    return E_FAIL;
 
 } // HRESULT DelegatingException::GetHR()
 

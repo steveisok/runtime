@@ -12,6 +12,10 @@
 
 #include "check.h"
 
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
+
 #ifndef SM_REMOTESESSION
 #define SM_REMOTESESSION 0x1000
 #endif
@@ -1957,7 +1961,24 @@ void CordbProcess::QueueManagedAttachIfNeededWorker()
     if (m_fDoDelayedManagedAttached && GetShim()->GetAttached())
     {
         RSLockHolder lockHolder(&this->m_processMutex);
-        GetDAC()->MarkDebuggerAttachPending();
+
+        // Wrap in EX_TRY — MarkDebuggerAttachPending may throw CORDBG_E_NOTREADY
+        // if the debugger control block isn't available yet. Without this guard,
+        // the exception propagates unhandled and crashes the callback thread.
+        HRESULT hrMark = S_OK;
+        EX_TRY
+        {
+            GetDAC()->MarkDebuggerAttachPending();
+        }
+        EX_CATCH_HRESULT(hrMark);
+        if (FAILED(hrMark))
+        {
+#ifdef __ANDROID__
+            __android_log_print(ANDROID_LOG_WARN, "DOTNET", "CP::QMAIFNW: MarkDebuggerAttachPending threw hr=0x%x (caught by Approach F fix)", hrMark);
+#else
+            STRESS_LOG1(LF_CORDB, LL_INFO1000, "CP::QMAIFNW: MarkDebuggerAttachPending threw hr=0x%x (caught by Approach F fix)\n", hrMark);
+#endif
+        }
 
         hrQueue = this->QueueManagedAttach();
     }
@@ -6316,12 +6337,26 @@ HRESULT CordbProcess::IsTransitionStub(CORDB_ADDRESS address, BOOL *pfTransition
         // (See IMDArocess::SetThreadContext for details on that bug).
         // If we ever stop using IPC events here and only use DAC; we need to be aware of that.
 
-        // Check against DAC primitives
+        // Check against DAC primitives in a separate EX_TRY so a DAC exception
+        // (e.g., E_NOTIMPL on Unix) does not override the IPC result above.
         {
-            BOOL fIsStub2 = GetDAC()->IsTransitionStub(address);
-            (void)fIsStub2; //prevent "unused variable" error from GCC
-            CONSISTENCY_CHECK_MSGF(*pfTransitionStub == fIsStub2, ("IsStub2 failed, DAC2:%d, IPC:%d, addr:0x%p", (int) fIsStub2, (int) *pfTransitionStub, CORDB_ADDRESS_TO_PTR(address)));
-
+            HRESULT hrDac = S_OK;
+            EX_TRY
+            {
+                BOOL fIsStub2 = GetDAC()->IsTransitionStub(address);
+                (void)fIsStub2; //prevent "unused variable" error from GCC
+                CONSISTENCY_CHECK_MSGF(*pfTransitionStub == fIsStub2, ("IsStub2 failed, DAC2:%d, IPC:%d, addr:0x%p", (int) fIsStub2, (int) *pfTransitionStub, CORDB_ADDRESS_TO_PTR(address)));
+            }
+            EX_CATCH_HRESULT(hrDac);
+            // Intentionally ignore hrDac — the IPC result is authoritative.
+            if (FAILED(hrDac))
+            {
+#ifdef __ANDROID__
+                __android_log_print(ANDROID_LOG_WARN, "DOTNET", "CP::ITS: DAC consistency check threw hr=0x%x (isolated by Approach F fix), IPC result preserved", hrDac);
+#else
+                STRESS_LOG1(LF_CORDB, LL_INFO1000, "CP::ITS: DAC consistency check threw hr=0x%x (isolated by Approach F fix), IPC result preserved\n", hrDac);
+#endif
+            }
         }
     }
     EX_CATCH_HRESULT(hr);
@@ -11154,7 +11189,22 @@ void CordbProcess::FilterClrNotification(
             InitializeDac();
 
             // @dbgtodo 'attach-bit': we don't want the debugger automatically invading the process.
-            GetDAC()->MarkDebuggerAttached(TRUE);
+            {
+                HRESULT hrMark = S_OK;
+                EX_TRY
+                {
+                    GetDAC()->MarkDebuggerAttached(TRUE);
+                }
+                EX_CATCH_HRESULT(hrMark);
+                if (FAILED(hrMark))
+                {
+#ifdef __ANDROID__
+                    __android_log_print(ANDROID_LOG_WARN, "DOTNET", "CP::FCN: MarkDebuggerAttached(TRUE) threw hr=0x%x (caught by Approach F fix)", hrMark);
+#else
+                    STRESS_LOG1(LF_CORDB, LL_INFO1000, "CP::FCN: MarkDebuggerAttached(TRUE) threw hr=0x%x (caught by Approach F fix)\n", hrMark);
+#endif
+                }
+            }
         }
         else if (pManagedEvent->type == DB_IPCE_SYNC_COMPLETE)
         {

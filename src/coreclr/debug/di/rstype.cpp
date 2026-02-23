@@ -13,6 +13,10 @@
 #include "winbase.h"
 #include "corpriv.h"
 
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
+
 
 //-----------------------------------------------------------------------------
 // Public method to get the static field from a type.
@@ -1490,8 +1494,20 @@ HRESULT CordbType::Init(BOOL fForceInit)
          // the type information incomplete and subsequent operations
          // will try to call Init() again.  The immediate operation will fail later if
          // TypeToBasicTypeData requests the exact type information for this type.
+         //
+         // On Android, RTTI mismatch across the DAC/DBI DSO boundary causes
+         // all DAC HRESULTs to flatten to E_FAIL. Treat E_FAIL the same as
+         // CORDBG_E_CLASS_NOT_LOADED so deferred class loading still works.
          hr = InitInstantiationTypeHandle(fForceInit);
-         if (hr != CORDBG_E_CLASS_NOT_LOADED)
+         if (hr == E_FAIL)
+         {
+#ifdef __ANDROID__
+             __android_log_print(ANDROID_LOG_WARN, "DOTNET", "CordbType::Init: treating E_FAIL as class-not-loaded (Android RTTI workaround), elementType=0x%x", m_elementType);
+#else
+             STRESS_LOG1(LF_CORDB, LL_INFO1000, "CordbType::Init: treating E_FAIL as class-not-loaded (Android RTTI workaround), elementType=0x%x\n", m_elementType);
+#endif
+         }
+         if (hr != CORDBG_E_CLASS_NOT_LOADED && hr != E_FAIL)
              IfFailRet(hr);
       }
 
