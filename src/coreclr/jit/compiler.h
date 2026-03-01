@@ -6742,7 +6742,7 @@ public:
 #ifdef DEBUG
         unsigned acdNum;
         void Dump();
-#endif;
+#endif
     };
 
     unsigned acdCount = 0;

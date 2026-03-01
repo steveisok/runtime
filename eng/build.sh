@@ -625,14 +625,22 @@ fi
 
 initDistroRid "$os" "$arch" "$crossBuild"
 
-# Enable sccache for linux-x64 builds if the binary is present in the repo root.
-if [[ "${USE_SCCACHE:-}" != "true" && "$os" == "linux" && "$arch" == "x64" && -f "$scriptroot/../sccache" ]]; then
-    export PATH="$scriptroot/..:$PATH"
-    export USE_SCCACHE=true
-    export SCCACHE_AZURE_BLOB_CONTAINER=runtime-cache
-    export SCCACHE_AZURE_CONNECTION_STRING="BlobEndpoint=https://runsccache.blob.core.windows.net"
-    export SCCACHE_AZURE_NO_CREDENTIALS=true
+# Enable sccache if not already enabled.
+# On Linux x64 CI, auto-enable when the bundled binary is present in the repo root.
+# On any platform, auto-enable when sccache is found in PATH (e.g. installed via brew).
+if [[ "${USE_SCCACHE:-}" != "true" ]]; then
+    if [[ "$os" == "linux" && "$arch" == "x64" && -f "$scriptroot/../sccache" ]]; then
+        export PATH="$scriptroot/..:$PATH"
+        export USE_SCCACHE=true
+        export SCCACHE_AZURE_BLOB_CONTAINER=runtime-cache
+        export SCCACHE_AZURE_CONNECTION_STRING="BlobEndpoint=https://runsccache.blob.core.windows.net"
+        export SCCACHE_AZURE_NO_CREDENTIALS=true
+    elif command -v sccache &> /dev/null; then
+        export USE_SCCACHE=true
+    fi
+fi
 
+if [[ "${USE_SCCACHE:-}" == "true" ]]; then
     sccache --stop-server || true
 
     # Disable idle timeout so the server stays alive across long managed-build
@@ -648,7 +656,7 @@ if [[ "${USE_SCCACHE:-}" != "true" && "$os" == "linux" && "$arch" == "x64" && -f
     fi
     mkdir -p "$__sccacheLogDir"
     SCCACHE_ERROR_LOG="$__sccacheLogDir/sccache_debug.log" SCCACHE_LOG=debug sccache --start-server
-    echo "sccache enabled for linux-x64 build"
+    echo "sccache enabled"
     sccache -s
 fi
 
@@ -690,6 +698,6 @@ fi
 
 "$scriptroot/common/build.sh" ${arguments[@]+"${arguments[@]}"}
 
-if [[ "$os" == "linux" && "$arch" == "x64" && -f "$scriptroot/../sccache" ]]; then
+if [[ "${USE_SCCACHE:-}" == "true" ]]; then
     sccache -s
 fi
