@@ -1,0 +1,176 @@
+<Project>
+  <UsingTask TaskName="ApiCompatCacheTask" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <LeftAssemblies ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="true" />
+      <RightAssemblies ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="true" />
+      <SuppressionFiles ParameterType="Microsoft.Build.Framework.ITaskItem[]" />
+      <CacheDir ParameterType="System.String" Required="true" />
+      <SemaphoreFile ParameterType="System.String" Required="true" />
+      <CacheKey Output="true" ParameterType="System.String" />
+      <CacheHit Output="true" ParameterType="System.Boolean" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System" />
+      <Using Namespace="System.IO" />
+      <Using Namespace="System.Linq" />
+      <Using Namespace="System.Security.Cryptography" />
+      <Using Namespace="System.Text" />
+      <Code Type="Class" Language="cs">
+        <![CDATA[
+using Microsoft.Build.Framework;
+using Microsoft.Build.Utilities;
+using System;
+using System.IO;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
+
+public class ApiCompatCacheTask : Task
+{
+    [Required] public ITaskItem[] LeftAssemblies { get; set; }
+    [Required] public ITaskItem[] RightAssemblies { get; set; }
+    public ITaskItem[] SuppressionFiles { get; set; }
+    [Required] public string CacheDir { get; set; }
+    [Required] public string SemaphoreFile { get; set; }
+    [Output] public string CacheKey { get; set; }
+    [Output] public bool CacheHit { get; set; }
+
+    public override bool Execute()
+    {
+        try
+        {
+            CacheKey = ComputeCacheKey();
+            if (string.IsNullOrEmpty(CacheKey))
+            {
+                CacheHit = false;
+                return true;
+            }
+
+            string marker = Path.Combine(CacheDir, CacheKey.Substring(0, 2), CacheKey + ".ok");
+            if (File.Exists(marker))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(SemaphoreFile));
+                File.WriteAllText(SemaphoreFile, "ApiCompatCache HIT " + CacheKey);
+                CacheHit = true;
+                Log.LogMessage(MessageImportance.High, "ApiCompatCache HIT: {0} ({1})",
+                    Path.GetFileNameWithoutExtension(RightAssemblies[0].ItemSpec), CacheKey.Substring(0, 12));
+                return true;
+            }
+
+            CacheHit = false;
+            Log.LogMessage(MessageImportance.Normal, "ApiCompatCache MISS: {0} ({1})",
+                Path.GetFileNameWithoutExtension(RightAssemblies[0].ItemSpec), CacheKey.Substring(0, 12));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.LogWarning("ApiCompatCache: {0}", ex.Message);
+            CacheHit = false;
+            return true;
+        }
+    }
+
+    private string ComputeCacheKey()
+    {
+        using (var sha = SHA256.Create())
+        {
+            // Hash left (contract/ref) assemblies by content
+            foreach (var item in LeftAssemblies.OrderBy(i => i.ItemSpec, StringComparer.OrdinalIgnoreCase))
+            {
+                string path = item.GetMetadata("FullPath");
+                if (string.IsNullOrEmpty(path)) path = item.ItemSpec;
+                if (File.Exists(path))
+                    HashFileContent(sha, path);
+            }
+
+            // Hash right (implementation) assemblies by content
+            foreach (var item in RightAssemblies.OrderBy(i => i.ItemSpec, StringComparer.OrdinalIgnoreCase))
+            {
+                string path = item.GetMetadata("FullPath");
+                if (string.IsNullOrEmpty(path)) path = item.ItemSpec;
+                if (File.Exists(path))
+                    HashFileContent(sha, path);
+                else
+                    return null; // assembly not built yet
+            }
+
+            // Hash suppression files by content
+            if (SuppressionFiles is not null)
+            {
+                foreach (var item in SuppressionFiles.OrderBy(i => i.ItemSpec, StringComparer.OrdinalIgnoreCase))
+                {
+                    string path = item.GetMetadata("FullPath");
+                    if (string.IsNullOrEmpty(path)) path = item.ItemSpec;
+                    if (File.Exists(path))
+                        HashFileContent(sha, path);
+                }
+            }
+
+            sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+            return BitConverter.ToString(sha.Hash).Replace("-", "").ToLowerInvariant();
+        }
+    }
+
+    private void HashFileContent(SHA256 sha, string path)
+    {
+        byte[] content = File.ReadAllBytes(path);
+        byte[] header = Encoding.UTF8.GetBytes($"file:{Path.GetFileName(path)}:len={content.Length}\n");
+        sha.TransformBlock(header, 0, header.Length, null, 0);
+        sha.TransformBlock(content, 0, content.Length, null, 0);
+    }
+}
+        ]]>
+      </Code>
+    </Task>
+  </UsingTask>
+
+  <!-- Populate task: write the .ok marker after successful validation -->
+  <UsingTask TaskName="ApiCompatCachePopulateTask" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <RightAssemblies ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="true" />
+      <CacheDir ParameterType="System.String" Required="true" />
+      <CacheKey ParameterType="System.String" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System" />
+      <Using Namespace="System.IO" />
+      <Code Type="Class" Language="cs">
+        <![CDATA[
+using Microsoft.Build.Framework;
+using Microsoft.Build.Utilities;
+using System;
+using System.IO;
+
+public class ApiCompatCachePopulateTask : Task
+{
+    [Required] public ITaskItem[] RightAssemblies { get; set; }
+    [Required] public string CacheDir { get; set; }
+    [Required] public string CacheKey { get; set; }
+
+    public override bool Execute()
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(CacheKey))
+                return true;
+
+            string marker = Path.Combine(CacheDir, CacheKey.Substring(0, 2), CacheKey + ".ok");
+            Directory.CreateDirectory(Path.GetDirectoryName(marker));
+            File.WriteAllText(marker, DateTime.UtcNow.ToString("o"));
+
+            Log.LogMessage(MessageImportance.Normal, "ApiCompatCache STORE: {0} ({1})",
+                Path.GetFileNameWithoutExtension(RightAssemblies[0].ItemSpec), CacheKey.Substring(0, 12));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.LogWarning("ApiCompatCachePopulate: {0}", ex.Message);
+            return true;
+        }
+    }
+}
+        ]]>
+      </Code>
+    </Task>
+  </UsingTask>
+</Project>

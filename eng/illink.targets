@@ -1,5 +1,9 @@
 <Project>
 
+  <!-- ILLinkCache task definition (opt-in via USE_ILLINKCACHE=true) -->
+  <Import Project="$(RepositoryEngineeringDir)illinkcache/ILLinkCacheTask.proj"
+          Condition="'$(USE_ILLINKCACHE)' == 'true'" />
+
   <PropertyGroup>
     <!-- Custom trimming logic should always use live ILLink, even when none of the
          trimming-related SDK properties are set. -->
@@ -10,6 +14,9 @@
     <IsTrimmable Condition="'$(IsTrimmable)' == ''">true</IsTrimmable>
     <PrepareResourcesDependsOn>_EmbedILLinkXmls;$(PrepareResourcesDependsOn)</PrepareResourcesDependsOn>
     <TargetsTriggeredByCompilation Condition="'$(DesignTimeBuild)' != 'true'">$(TargetsTriggeredByCompilation);ILLinkTrimAssembly</TargetsTriggeredByCompilation>
+
+    <!-- ILLinkCache: content-addressed cache for ILLink trimming (opt-in) -->
+    <ILLinkCacheDir Condition="'$(ILLinkCacheDir)' == ''">$([System.Environment]::GetFolderPath(SpecialFolder.UserProfile))/.illinkcache</ILLinkCacheDir>
 
     <ILLinkDirectory Condition="'$(ILLinkDirectory)' == ''">$(MSBuildProjectDirectory)\ILLink\</ILLinkDirectory>
     <ILLinkTrimAssemblyPath>$(IntermediateOutputPath)$(TargetName)$(TargetExt)</ILLinkTrimAssemblyPath>
@@ -264,12 +271,42 @@
       <ILLinkArgs Condition="@(_DependencyDirectories->Count()) > 0">$(ILLinkArgs) -d @(_DependencyDirectories->'"%(Identity)"', ' -d ')</ILLinkArgs>
     </PropertyGroup>
 
+    <!-- ILLinkCache: check for a cached trimmed assembly before running ILLink -->
+    <ILLinkCacheTask
+      Condition="'$(USE_ILLINKCACHE)' == 'true'"
+      Mode="check"
+      InputAssembly="$(ILLinkTrimInputAssembly)"
+      InputPdb="$(ILLinkTrimInputSymbols)"
+      ILLinkArgs="$(ILLinkArgs)"
+      DependencyDirectories="@(_DependencyDirectories)"
+      DescriptorFiles="@(ILLinkDescriptorsLibraryBuildXml)"
+      OutputDirectory="$(ILLinkTrimOutputPath)"
+      TargetName="$(TargetName)"
+      TargetExt="$(TargetExt)"
+      CacheDir="$(ILLinkCacheDir)">
+      <Output TaskParameter="CacheHit" PropertyName="_ILLinkCacheHit" />
+      <Output TaskParameter="CacheKey" PropertyName="_ILLinkCacheKey" />
+    </ILLinkCacheTask>
+
     <ILLink AssemblyPaths=""
             RootAssemblyNames="@(ILLinkTrimInputAssembly)"
             OutputDirectory="$(ILLinkTrimOutputPath)"
             ExtraArgs="$(ILLinkArgs)"
             ToolExe="$(_DotNetHostFileName)"
-            ToolPath="$(_DotNetHostDirectory)" />
+            ToolPath="$(_DotNetHostDirectory)"
+            Condition="'$(_ILLinkCacheHit)' != 'True'" />
+
+    <!-- ILLinkCache: store the trimmed output on a cache miss -->
+    <ILLinkCacheTask
+      Condition="'$(USE_ILLINKCACHE)' == 'true' and '$(_ILLinkCacheHit)' != 'True' and '$(_ILLinkCacheKey)' != ''"
+      Mode="populate"
+      CacheKey="$(_ILLinkCacheKey)"
+      InputAssembly="$(ILLinkTrimInputAssembly)"
+      OutputDirectory="$(ILLinkTrimOutputPath)"
+      TargetName="$(TargetName)"
+      TargetExt="$(TargetExt)"
+      CacheDir="$(ILLinkCacheDir)">
+    </ILLinkCacheTask>
   </Target>
 
   <!-- ILLink reporting.

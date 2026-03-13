@@ -1,0 +1,194 @@
+<Project>
+  <UsingTask TaskName="ILLinkCacheTask" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <InputAssembly ParameterType="System.String" Required="true" />
+      <InputPdb ParameterType="System.String" />
+      <ILLinkArgs ParameterType="System.String" />
+      <DependencyDirectories ParameterType="Microsoft.Build.Framework.ITaskItem[]" />
+      <DescriptorFiles ParameterType="Microsoft.Build.Framework.ITaskItem[]" />
+      <OutputDirectory ParameterType="System.String" Required="true" />
+      <TargetName ParameterType="System.String" Required="true" />
+      <TargetExt ParameterType="System.String" Required="true" />
+      <CacheDir ParameterType="System.String" Required="true" />
+      <Mode ParameterType="System.String" Required="true" />
+      <CacheKey Output="true" ParameterType="System.String" />
+      <CacheHit Output="true" ParameterType="System.Boolean" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System" />
+      <Using Namespace="System.IO" />
+      <Using Namespace="System.Linq" />
+      <Using Namespace="System.Security.Cryptography" />
+      <Using Namespace="System.Text" />
+      <Code Type="Class" Language="cs">
+        <![CDATA[
+using Microsoft.Build.Framework;
+using Microsoft.Build.Utilities;
+using System;
+using System.IO;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
+
+public class ILLinkCacheTask : Task
+{
+    [Required] public string InputAssembly { get; set; }
+    public string InputPdb { get; set; }
+    public string ILLinkArgs { get; set; }
+    public ITaskItem[] DependencyDirectories { get; set; }
+    public ITaskItem[] DescriptorFiles { get; set; }
+    [Required] public string OutputDirectory { get; set; }
+    [Required] public string TargetName { get; set; }
+    [Required] public string TargetExt { get; set; }
+    [Required] public string CacheDir { get; set; }
+    [Required] public string Mode { get; set; }
+    [Output] public string CacheKey { get; set; }
+    [Output] public bool CacheHit { get; set; }
+
+    public override bool Execute()
+    {
+        try
+        {
+            // In populate mode, reuse the cache key from the check phase if available.
+            if (string.IsNullOrEmpty(CacheKey))
+                CacheKey = ComputeCacheKey();
+            if (string.IsNullOrEmpty(CacheKey))
+            {
+                CacheHit = false;
+                return true;
+            }
+
+            if (Mode == "check")
+                return CheckCache();
+            else if (Mode == "populate")
+                return PopulateCache();
+            else
+            {
+                Log.LogError("ILLinkCache: Mode must be 'check' or 'populate'.");
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.LogWarning("ILLinkCache: {0}", ex.Message);
+            CacheHit = false;
+            return true;
+        }
+    }
+
+    private string ComputeCacheKey()
+    {
+        if (!File.Exists(InputAssembly))
+            return null;
+
+        using (var sha = SHA256.Create())
+        {
+            // Hash the pre-trim assembly (the main input)
+            HashFileContent(sha, InputAssembly);
+
+            // Hash PDB if present
+            if (!string.IsNullOrEmpty(InputPdb) && File.Exists(InputPdb))
+                HashFileContent(sha, InputPdb);
+
+            // Hash ILLink arguments (contains trim mode, actions, warnings, etc.)
+            HashString(sha, ILLinkArgs ?? "");
+
+            // Hash descriptor XML files by content
+            if (DescriptorFiles != null)
+            {
+                foreach (var item in DescriptorFiles.OrderBy(i => i.ItemSpec, StringComparer.OrdinalIgnoreCase))
+                {
+                    string path = item.GetMetadata("FullPath");
+                    if (File.Exists(path))
+                    {
+                        HashString(sha, Path.GetFileName(path));
+                        HashFileContent(sha, path);
+                    }
+                }
+            }
+
+            // Hash reference assembly directories — hash the DLLs in each directory.
+            // Ref assemblies are small (typically one per directory), so content hashing is fast.
+            if (DependencyDirectories != null)
+            {
+                foreach (var dir in DependencyDirectories.OrderBy(i => i.ItemSpec, StringComparer.OrdinalIgnoreCase))
+                {
+                    string dirPath = dir.ItemSpec;
+                    if (Directory.Exists(dirPath))
+                    {
+                        foreach (var dll in Directory.GetFiles(dirPath, "*.dll").OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
+                        {
+                            HashString(sha, Path.GetFileName(dll));
+                            HashFileContent(sha, dll);
+                        }
+                    }
+                }
+            }
+
+            sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+            return BitConverter.ToString(sha.Hash).Replace("-", "").ToLowerInvariant();
+        }
+    }
+
+    private void HashString(SHA256 sha, string value)
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(value + "\n");
+        sha.TransformBlock(bytes, 0, bytes.Length, null, 0);
+    }
+
+    private void HashFileContent(SHA256 sha, string path)
+    {
+        byte[] content = File.ReadAllBytes(path);
+        byte[] header = Encoding.UTF8.GetBytes($"file:{Path.GetFileName(path)}:len={content.Length}\n");
+        sha.TransformBlock(header, 0, header.Length, null, 0);
+        sha.TransformBlock(content, 0, content.Length, null, 0);
+    }
+
+    private string EntryDir => Path.Combine(CacheDir, CacheKey.Substring(0, 2), CacheKey);
+    private string OutputDll => Path.Combine(OutputDirectory, TargetName + TargetExt);
+    private string OutputPdb => Path.Combine(OutputDirectory, TargetName + ".pdb");
+
+    private bool CheckCache()
+    {
+        string cachedDll = Path.Combine(EntryDir, TargetName + TargetExt);
+        if (!File.Exists(cachedDll))
+        {
+            CacheHit = false;
+            Log.LogMessage(MessageImportance.Normal, "ILLinkCache MISS: {0} ({1})", TargetName, CacheKey.Substring(0, 12));
+            return true;
+        }
+
+        Directory.CreateDirectory(OutputDirectory);
+        File.Copy(cachedDll, OutputDll, true);
+
+        string cachedPdb = Path.Combine(EntryDir, TargetName + ".pdb");
+        if (File.Exists(cachedPdb))
+            File.Copy(cachedPdb, OutputPdb, true);
+
+        CacheHit = true;
+        Log.LogMessage(MessageImportance.High, "ILLinkCache HIT: {0} ({1})", TargetName, CacheKey.Substring(0, 12));
+        return true;
+    }
+
+    private bool PopulateCache()
+    {
+        if (!File.Exists(OutputDll))
+            return true;
+
+        string entryDir = EntryDir;
+        Directory.CreateDirectory(entryDir);
+
+        File.Copy(OutputDll, Path.Combine(entryDir, TargetName + TargetExt), true);
+
+        if (File.Exists(OutputPdb))
+            File.Copy(OutputPdb, Path.Combine(entryDir, TargetName + ".pdb"), true);
+
+        Log.LogMessage(MessageImportance.Normal, "ILLinkCache STORE: {0} ({1})", TargetName, CacheKey.Substring(0, 12));
+        return true;
+    }
+}
+        ]]>
+      </Code>
+    </Task>
+  </UsingTask>
+</Project>

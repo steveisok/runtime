@@ -7,6 +7,12 @@
     <ImportDirectoryBuildTargets>false</ImportDirectoryBuildTargets>
   </PropertyGroup>
 
+  <!-- ApiCompat result caching: skip validation when the same assemblies were already validated. -->
+  <Import Project="$(RepositoryEngineeringDir)apicompatcache\ApiCompatCacheTask.proj" />
+  <PropertyGroup>
+    <ApiCompatCacheDir Condition="'$(ApiCompatCacheDir)' == ''">$([System.Environment]::GetFolderPath(SpecialFolder.UserProfile))/.apicompat-cache</ApiCompatCacheDir>
+  </PropertyGroup>
+
   <Import Project="$(RepositoryEngineeringDir)liveBuilds.targets" />
 
   <PropertyGroup Condition="'$(UseBootstrapLayout)' == 'true'">
@@ -196,5 +202,36 @@
                                                               Exclude="@(_targetingPackIncludedAnalyzerReferenceWithProjectName)" />
       <Analyzer Remove="@(_targetingPackExcludedAnalyzerReferenceWithProjectName->Metadata('OriginalIdentity'))" />
     </ItemGroup>
+  </Target>
+
+  <!-- ApiCompat cache: check before validation, populate after. -->
+  <Target Name="_ApiCompatCacheCheck"
+          BeforeTargets="ApiCompatValidateAssembliesCore"
+          AfterTargets="PrepareInputsForApiCompatValidateAssemblies"
+          Condition="'$(ApiCompatValidateAssemblies)' == 'true' and
+                     '@(ApiCompatLeftAssemblies)' != '' and
+                     '@(ApiCompatRightAssemblies)' != '' and
+                     '$(DesignTimeBuild)' != 'true'">
+    <ApiCompatCacheTask
+      LeftAssemblies="@(ApiCompatLeftAssemblies)"
+      RightAssemblies="@(ApiCompatRightAssemblies)"
+      SuppressionFiles="@(ApiCompatSuppressionFile)"
+      CacheDir="$(ApiCompatCacheDir)"
+      SemaphoreFile="$(_ApiCompatValidateAssembliesSemaphoreFile)">
+      <Output TaskParameter="CacheHit" PropertyName="_ApiCompatCacheHit" />
+      <Output TaskParameter="CacheKey" PropertyName="_ApiCompatCacheKey" />
+    </ApiCompatCacheTask>
+  </Target>
+
+  <Target Name="_ApiCompatCachePopulate"
+          AfterTargets="ApiCompatValidateAssembliesCore"
+          Condition="'$(ApiCompatValidateAssemblies)' == 'true' and
+                     '$(_ApiCompatCacheHit)' != 'true' and
+                     '@(ApiCompatLeftAssemblies)' != '' and
+                     '@(ApiCompatRightAssemblies)' != ''">
+    <ApiCompatCachePopulateTask
+      RightAssemblies="@(ApiCompatRightAssemblies)"
+      CacheDir="$(ApiCompatCacheDir)"
+      CacheKey="$(_ApiCompatCacheKey)" />
   </Target>
 </Project>
