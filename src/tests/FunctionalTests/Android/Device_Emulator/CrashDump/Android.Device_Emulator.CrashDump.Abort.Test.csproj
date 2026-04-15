@@ -17,9 +17,6 @@
     <AndroidEnv Include="DOTNET_EnableInProcessCrashReport">
       <Value>1</Value>
     </AndroidEnv>
-    <AndroidEnv Include="DOTNET_DbgMiniDumpName">
-      <Value>/data/local/tmp/crash.coredump</Value>
-    </AndroidEnv>
     <AndroidEnv Include="CRASH_SCENARIO">
       <Value>abort</Value>
     </AndroidEnv>

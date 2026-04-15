@@ -21,6 +21,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <errno.h>
 
 #if defined(__linux__)
 #include <sys/types.h>
@@ -204,6 +205,18 @@ static int IntToStr(int val, char* buf, int bufSize)
         buf[pos++] = tmp[--i];
     buf[pos] = '\0';
     return pos;
+}
+
+// ---------------------------------------------------------------------------
+// Async-signal-safe stderr output
+// ---------------------------------------------------------------------------
+
+static void WriteStderr(const char* msg)
+{
+    if (msg == NULL) return;
+    int len = 0;
+    while (msg[len]) len++;
+    write(STDERR_FILENO, msg, len);
 }
 
 // ---------------------------------------------------------------------------
@@ -618,7 +631,24 @@ void InProcDump_Generate(int signal, siginfo_t* siginfo, void* context)
     BuildDumpPath(dumpPath, sizeof(dumpPath), s_state.pid);
 
     // Write the dump
-    InProcDumpElf_Write(&s_state, dumpPath);
+    WriteStderr("Writing core dump to: ");
+    WriteStderr(dumpPath);
+    WriteStderr("\n");
+    int dumpResult = InProcDumpElf_Write(&s_state, dumpPath);
+    if (dumpResult < 0)
+    {
+        WriteStderr("Failed to write core dump to: ");
+        WriteStderr(dumpPath);
+        char errBuf[16];
+        WriteStderr(" (errno=");
+        IntToStr(errno, errBuf, sizeof(errBuf));
+        WriteStderr(errBuf);
+        WriteStderr(")\n");
+    }
+    else
+    {
+        WriteStderr("Core dump written successfully\n");
+    }
 
     // Don't close s_fdMem — the process is about to exit anyway.
 
@@ -649,7 +679,24 @@ void InProcDump_Generate(int signal, siginfo_t* siginfo, void* context)
     BuildDumpPath(dumpPath, sizeof(dumpPath), s_state.pid);
 
     // Write the dump
-    InProcDumpMachO_Write(&s_state, dumpPath);
+    WriteStderr("Writing core dump to: ");
+    WriteStderr(dumpPath);
+    WriteStderr("\n");
+    int dumpResult = InProcDumpMachO_Write(&s_state, dumpPath);
+    if (dumpResult < 0)
+    {
+        WriteStderr("Failed to write core dump to: ");
+        WriteStderr(dumpPath);
+        char errBuf[16];
+        WriteStderr(" (errno=");
+        IntToStr(errno, errBuf, sizeof(errBuf));
+        WriteStderr(errBuf);
+        WriteStderr(")\n");
+    }
+    else
+    {
+        WriteStderr("Core dump written successfully\n");
+    }
 
 #endif
 }
