@@ -22,6 +22,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <errno.h>
+#include <minipal/log.h>
 
 #if defined(__linux__)
 #include <sys/types.h>
@@ -70,6 +71,7 @@ void InProcDump_Initialize(void)
     if (enable == NULL || enable[0] != '1')
     {
         s_dumpType = InProcDumpType_None;
+        minipal_log_write_info("InProcDump: disabled (DOTNET_EnableInProcessCrashReport not set)\n");
         return;
     }
 
@@ -91,8 +93,6 @@ void InProcDump_Initialize(void)
     const char* pathEnv = getenv("DOTNET_DbgMiniDumpName");
     if (pathEnv != NULL && pathEnv[0] != '\0')
     {
-        // Copy the path, replacing %d with pid and %t with timestamp would be
-        // complex in signal handler. For now, use as-is.
         int i = 0;
         while (pathEnv[i] && i < (int)sizeof(s_dumpPath) - 1)
         {
@@ -125,6 +125,12 @@ void InProcDump_Initialize(void)
             s_dumpPath[0] = '\0';
         }
     }
+
+    char logMsg[1200];
+    snprintf(logMsg, sizeof(logMsg), "InProcDump: initialized, type=%s, path=%s\n",
+             s_dumpType == InProcDumpType_Full ? "full" : "mini",
+             s_dumpPath[0] ? s_dumpPath : "(deferred to crash time)");
+    minipal_log_write_info(logMsg);
 
 #if defined(__linux__)
     // Open /proc/self/mem now — may not be openable in some signal states.
@@ -228,15 +234,16 @@ static int IntToStr(int val, char* buf, int bufSize)
 }
 
 // ---------------------------------------------------------------------------
-// Async-signal-safe stderr output
+// Diagnostic logging (uses minipal_log for Android logcat visibility)
 // ---------------------------------------------------------------------------
 
 static void WriteStderr(const char* msg)
 {
     if (msg == NULL) return;
-    int len = 0;
-    while (msg[len]) len++;
-    write(STDERR_FILENO, msg, len);
+    // On Android, write(STDERR_FILENO, ...) doesn't appear in logcat.
+    // Use minipal_log_write which routes to __android_log_write on Android
+    // and write(STDERR_FILENO, ...) on other platforms.
+    minipal_log_write_info(msg);
 }
 
 // ---------------------------------------------------------------------------
@@ -605,12 +612,20 @@ static void CollectRegions_Apple(struct InProcDumpState* state)
 void InProcDump_Generate(int signal, siginfo_t* siginfo, void* context)
 {
     if (s_dumpType == InProcDumpType_None)
+    {
+        minipal_log_write_info("InProcDump_Generate: skipped (dumpType=None)\n");
         return;
+    }
 
     // One-thread-wins serialization — prevent concurrent dump generation.
     int expected = 0;
     if (!__atomic_compare_exchange_n(&s_dumpInProgress, &expected, 1, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
+    {
+        minipal_log_write_info("InProcDump_Generate: skipped (already in progress)\n");
         return;
+    }
+
+    minipal_log_write_info("InProcDump_Generate: starting core dump generation\n");
 
     // Clear the state
     memset(&s_state, 0, sizeof(s_state));
