@@ -22,6 +22,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <errno.h>
+#include <sys/stat.h>
 #include <minipal/log.h>
 
 #if defined(__linux__)
@@ -131,6 +132,24 @@ void InProcDump_Initialize(void)
              s_dumpType == InProcDumpType_Full ? "full" : "mini",
              s_dumpPath[0] ? s_dumpPath : "(deferred to crash time)");
     minipal_log_write_info(logMsg);
+
+    // Ensure the parent directory exists (mkdir is safe at init time).
+    if (s_dumpPath[0] != '\0')
+    {
+        char parentDir[1024];
+        int lastSlash = -1;
+        for (int k = 0; s_dumpPath[k]; k++)
+        {
+            if (s_dumpPath[k] == '/') lastSlash = k;
+        }
+        if (lastSlash > 0)
+        {
+            for (int k = 0; k < lastSlash && k < (int)sizeof(parentDir) - 1; k++)
+                parentDir[k] = s_dumpPath[k];
+            parentDir[lastSlash] = '\0';
+            mkdir(parentDir, 0755);
+        }
+    }
 
 #if defined(__linux__)
     // Open /proc/self/mem now — may not be openable in some signal states.
