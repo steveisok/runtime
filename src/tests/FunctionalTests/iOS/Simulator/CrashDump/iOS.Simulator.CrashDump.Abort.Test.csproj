@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <EnvironmentVariables Include="DOTNET_EnableInProcessCrashReport=1" />
+    <EnvironmentVariables Include="DOTNET_DbgMiniDumpName=/tmp/crash.coredump" />
     <EnvironmentVariables Include="CRASH_SCENARIO=abort" />
   </ItemGroup>
 </Project>
