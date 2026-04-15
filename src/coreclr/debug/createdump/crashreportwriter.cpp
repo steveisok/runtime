@@ -9,19 +9,19 @@
 CrashReportWriter::CrashReportWriter(CrashInfo& crashInfo) :
     m_crashInfo(crashInfo)
 {
-    m_fd = -1;
-    m_indent = JSON_INDENT_VALUE;
-    m_comma = false;
+    JsonFileSink_Init(&m_sink, -1);
+    JsonWriter_Init(&m_json, JsonFileSink_Emit, &m_sink, JSON_INDENT_VALUE,
+        JsonWriter_PrettyPrint | JsonWriter_QuotedBools | JsonWriter_SpaceAfterColon);
     m_crashInfo.AddRef();
 }
 
 CrashReportWriter::~CrashReportWriter()
 {
     m_crashInfo.Release();
-    if (m_fd != -1)
+    if (m_sink.fd != -1)
     {
-        close(m_fd);
-        m_fd = -1;
+        close(m_sink.fd);
+        m_sink.fd = -1;
     }
 }
 
@@ -39,9 +39,21 @@ CrashReportWriter::WriteCrashReport(const std::string& dumpFileName)
         if (!OpenWriter(crashReportFile.c_str())) {
             return;
         }
+        OpenObject();       // root {
         WriteCrashReport();
+        CloseObject();      // root }
+        // Emit trailing newline for readability
+        JsonFileSink_Emit(&m_sink, "\n", 1);
         CloseWriter();
-        printf_status("Crash report successfully written\n");
+        if (m_json.failed)
+        {
+            printf_error("Writing the crash report file FAILED\n");
+            remove(crashReportFile.c_str());
+        }
+        else
+        {
+            printf_status("Crash report successfully written\n");
+        }
     }
     catch (const std::exception& e)
     {
@@ -270,144 +282,20 @@ CrashReportWriter::WriteStackFrame(const StackFrame& frame)
 bool
 CrashReportWriter::OpenWriter(const char* fileName)
 {
-    m_fd = open(fileName, O_WRONLY|O_CREAT|O_TRUNC, S_IWUSR | S_IRUSR);
-    if (m_fd == -1)
+    m_sink.fd = open(fileName, O_WRONLY|O_CREAT|O_TRUNC, S_IWUSR | S_IRUSR);
+    if (m_sink.fd == -1)
     {
         printf_error("Could not create json file '%s': %s (%d)\n", fileName, strerror(errno), errno);
         return false;
     }
-    Write("{\n");
+    // Re-initialize the writer with the new fd
+    JsonWriter_Init(&m_json, JsonFileSink_Emit, &m_sink, JSON_INDENT_VALUE,
+        JsonWriter_PrettyPrint | JsonWriter_QuotedBools | JsonWriter_SpaceAfterColon);
     return true;
 }
 
 void
 CrashReportWriter::CloseWriter()
 {
-    assert(m_indent == JSON_INDENT_VALUE);
-    Write("\n}\n");
 }
 
-void
-CrashReportWriter::Write(const std::string& text)
-{
-    if (!DumpWriter::WriteData(m_fd, (void*)text.c_str(), text.length()))
-    {
-        throw std::exception();
-    }
-}
-
-void
-CrashReportWriter::Write(const char* buffer)
-{
-    std::string text(buffer);
-    Write(text);
-}
-
-void
-CrashReportWriter::Indent(std::string& text)
-{
-    assert(m_indent >= 0);
-    text.append(m_indent, ' ');
-}
-
-void
-CrashReportWriter::WriteSeparator(std::string& text)
-{
-    if (m_comma)
-    {
-        text.append(1, ',');
-        text.append(1, '\n');
-    }
-    Indent(text);
-}
-
-void
-CrashReportWriter::OpenValue(const char* key, char marker)
-{
-    std::string text;
-    WriteSeparator(text);
-    if (key != nullptr)
-    {
-        text.append("\"");
-        text.append(key);
-        text.append("\" : ");
-    }
-    text.append(1, marker);
-    text.append(1, '\n');
-    m_comma = false;
-    m_indent += JSON_INDENT_VALUE;
-    Write(text);
-}
-
-void
-CrashReportWriter::CloseValue(char marker)
-{
-    std::string text;
-    text.append(1, '\n');
-    assert(m_indent >= JSON_INDENT_VALUE);
-    m_indent -= JSON_INDENT_VALUE;
-    Indent(text);
-    text.append(1, marker);
-    m_comma = true;
-    Write(text);
-}
-
-void
-CrashReportWriter::WriteValue(const char* key, const char* value)
-{
-    std::string text;
-    WriteSeparator(text);
-    text.append("\"");
-    text.append(key);
-    text.append("\": \"");
-    text.append(value);
-    text.append("\"");
-    m_comma = true;
-    Write(text);
-}
-
-void
-CrashReportWriter::WriteValueBool(const char* key, bool value)
-{
-    WriteValue(key, value ? "true" : "false");
-}
-
-void
-CrashReportWriter::WriteValue32(const char* key, uint32_t value)
-{
-    char buffer[16];
-    snprintf(buffer, sizeof(buffer), "0x%x", value);
-    WriteValue(key, buffer);
-}
-
-void
-CrashReportWriter::WriteValue64(const char* key, uint64_t value)
-{
-    char buffer[32];
-    snprintf(buffer, sizeof(buffer), "0x%" PRIx64, value);
-    WriteValue(key, buffer);
-}
-
-void
-CrashReportWriter::OpenObject(const char* key)
-{
-    OpenValue(key, '{');
-}
-
-void
-CrashReportWriter::CloseObject()
-{
-    CloseValue('}');
-}
-
-void
-CrashReportWriter::OpenArray(const char* key)
-{
-    OpenValue(key, '[');
-}
-
-void
-CrashReportWriter::CloseArray()
-{
-    CloseValue(']');
-}

@@ -3,14 +3,15 @@
 
 #pragma once
 
+#include "jsonwriter.h"
+
 #define JSON_INDENT_VALUE 1
 
 class CrashReportWriter
 {
 private:
-    int m_fd;
-    int m_indent;
-    bool m_comma;
+    JsonFileSink m_sink;
+    JsonWriter m_json;
     CrashInfo& m_crashInfo;
 
     // no public copy constructor
@@ -28,20 +29,16 @@ private:
     void WriteSysctl(const char* sysctlname, const char* valueName);
 #endif
     void WriteStackFrame(const StackFrame& frame);
-    void Write(const std::string& text);
-    void Write(const char* buffer);
-    void Indent(std::string& text);
-    void WriteSeparator(std::string& text);
-    void OpenValue(const char* key, char marker);
-    void CloseValue(char marker);
     bool OpenWriter(const char* fileName);
     void CloseWriter();
-    void WriteValue(const char* key, const char* value);
-    void WriteValueBool(const char* key, bool value);
-    void WriteValue32(const char* key, uint32_t value);
-    void WriteValue64(const char* key, uint64_t value);
-    void OpenObject(const char* key = nullptr);
-    void CloseObject();
-    void OpenArray(const char* key);
-    void CloseArray();
+
+    // Convenience wrappers for the shared JsonWriter
+    void OpenObject(const char* key = nullptr)            { JsonWriter_OpenObject(&m_json, key); }
+    void CloseObject()                                     { JsonWriter_CloseObject(&m_json); }
+    void OpenArray(const char* key)                        { JsonWriter_OpenArray(&m_json, key); }
+    void CloseArray()                                      { JsonWriter_CloseArray(&m_json); }
+    void WriteValue(const char* key, const char* value)    { JsonWriter_WriteString(&m_json, key, value); }
+    void WriteValueBool(const char* key, bool value)       { JsonWriter_WriteBool(&m_json, key, value ? 1 : 0); }
+    void WriteValue32(const char* key, uint32_t value)     { JsonWriter_WriteHex(&m_json, key, (uint64_t)value); }
+    void WriteValue64(const char* key, uint64_t value)     { JsonWriter_WriteHex(&m_json, key, value); }
 };
