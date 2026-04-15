@@ -26,6 +26,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <elf.h>
+#include <minipal/log.h>
 
 // ---------------------------------------------------------------------------
 // ELF type aliases
@@ -200,8 +201,13 @@ static int WriteZeros(int fd, size_t len)
 
 int InProcDumpElf_Write(struct InProcDumpState* state, const char* path)
 {
+    minipal_log_write_info("ELF: opening file\n");
     int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (fd < 0) return -1;
+    if (fd < 0)
+    {
+        minipal_log_write_error("ELF: open failed\n");
+        return -1;
+    }
 
     int result = -1;
 
@@ -258,6 +264,7 @@ int InProcDumpElf_Write(struct InProcDumpState* state, const char* path)
         ehdr.e_shentsize = sizeof(Shdr);
     }
 
+    minipal_log_write_info("ELF: writing ELF header\n");
     if (WriteData(fd, &ehdr, sizeof(ehdr)) != 0) goto done;
 
     // --- Write section header (for large phnum) ---
@@ -321,6 +328,7 @@ int InProcDumpElf_Write(struct InProcDumpState* state, const char* path)
     }
 
     // --- Write NT_PRPSINFO ---
+    minipal_log_write_info("ELF: writing NT_PRPSINFO\n");
     {
         prpsinfo_t psinfo;
         memset(&psinfo, 0, sizeof(psinfo));
@@ -408,6 +416,7 @@ int InProcDumpElf_Write(struct InProcDumpState* state, const char* path)
     }
 
     // --- Write per-thread notes (NT_PRSTATUS + NT_FPREGSET) ---
+    minipal_log_write_info("ELF: writing thread notes\n");
     for (int t = 0; t < state->threadCount; t++)
     {
         const struct InProcThreadInfo* thread = &state->threads[t];
@@ -482,6 +491,7 @@ int InProcDumpElf_Write(struct InProcDumpState* state, const char* path)
     }
 
     // --- Write memory segments ---
+    minipal_log_write_info("ELF: writing memory segments\n");
     {
         char ioBuf[INPROC_IO_BUFFER_SIZE];
 
@@ -540,6 +550,7 @@ int InProcDumpElf_Write(struct InProcDumpState* state, const char* path)
     }
 
     result = 0;
+    minipal_log_write_info("ELF: write complete\n");
 
 done:
     close(fd);
