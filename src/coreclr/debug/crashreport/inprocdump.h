@@ -14,10 +14,10 @@
 #if defined(__linux__)
 #include <elf.h>
 #include <sys/user.h>
-#include <sys/procfs.h>
 
-// Android/Bionic doesn't define user_fpregs_struct — alias to the
-// platform-specific type, matching the convention in createdump/threadinfo.h.
+// Android/Bionic doesn't ship <sys/procfs.h> or define user_fpregs_struct.
+// Provide the same aliases/definitions that createdump/threadinfo.h uses,
+// and define the ELF note structures (prpsinfo_t, prstatus_t) inline.
 #if defined(__arm__)
 #define user_regs_struct  user_regs
 #define user_fpregs_struct user_fpregs
@@ -33,6 +33,76 @@ struct user_fpregs_struct
 #include <asm/sigcontext.h>
 #define user_fpregs_struct lasx_context
 #endif
+
+#if defined(__ANDROID__)
+// Android/Bionic doesn't provide <sys/procfs.h>.  Define the ELF core note
+// structures ourselves — these are ABI-stable, consumed only by debuggers.
+#include <sys/types.h>
+
+struct elf_siginfo
+{
+    int si_signo;
+    int si_code;
+    int si_errno;
+};
+
+#if defined(__LP64__)
+#define ELF_NGREG  (sizeof(struct user_regs_struct) / sizeof(unsigned long long))
+typedef unsigned long long elf_greg_t;
+#else
+#define ELF_NGREG  (sizeof(struct user_regs_struct) / sizeof(unsigned long))
+typedef unsigned long elf_greg_t;
+#endif
+typedef elf_greg_t elf_gregset_t[ELF_NGREG];
+
+struct elf_prstatus
+{
+    struct elf_siginfo pr_info;
+    short              pr_cursig;
+    unsigned long      pr_sigpend;
+    unsigned long      pr_sighold;
+    pid_t              pr_pid;
+    pid_t              pr_ppid;
+    pid_t              pr_pgrp;
+    pid_t              pr_sid;
+    struct timeval     pr_utime;
+    struct timeval     pr_stime;
+    struct timeval     pr_cutime;
+    struct timeval     pr_cstime;
+    elf_gregset_t      pr_reg;
+    int                pr_fpvalid;
+};
+typedef struct elf_prstatus prstatus_t;
+
+#define ELF_PRPSINFO_FNAME_SZ  16
+#define ELF_PRPSINFO_ARGS_SZ   80
+
+struct elf_prpsinfo
+{
+    char               pr_state;
+    char               pr_sname;
+    char               pr_zomb;
+    char               pr_nice;
+    unsigned long      pr_flag;
+#if defined(__LP64__)
+    unsigned int       pr_uid;
+    unsigned int       pr_gid;
+#else
+    unsigned short     pr_uid;
+    unsigned short     pr_gid;
+#endif
+    pid_t              pr_pid;
+    pid_t              pr_ppid;
+    pid_t              pr_pgrp;
+    pid_t              pr_sid;
+    char               pr_fname[ELF_PRPSINFO_FNAME_SZ];
+    char               pr_psargs[ELF_PRPSINFO_ARGS_SZ];
+};
+typedef struct elf_prpsinfo prpsinfo_t;
+
+#else  // !__ANDROID__
+#include <sys/procfs.h>
+#endif // __ANDROID__
 
 #elif defined(__APPLE__)
 #include <mach-o/loader.h>
