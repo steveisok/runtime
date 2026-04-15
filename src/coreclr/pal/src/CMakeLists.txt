@@ -137,6 +137,14 @@ if(NOT CLR_CMAKE_TARGET_APPLE AND NOT CLR_CMAKE_TARGET_ARCH_WASM)
   )
 endif(NOT CLR_CMAKE_TARGET_APPLE AND NOT CLR_CMAKE_TARGET_ARCH_WASM)
 
+if(CLR_CMAKE_TARGET_LINUX OR CLR_CMAKE_TARGET_APPLE)
+  include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../../debug/crashreport)
+  list(APPEND PLATFORM_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../debug/crashreport/jsonwriter.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../debug/crashreport/crashreportwriter.cpp
+  )
+endif(CLR_CMAKE_TARGET_LINUX OR CLR_CMAKE_TARGET_APPLE)
+
 if(CLR_CMAKE_HOST_ARCH_ARM)
   if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     set_source_files_properties(exception/seh.cpp PROPERTIES COMPILE_FLAGS -Wno-error=inline-asm)

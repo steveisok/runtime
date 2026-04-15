@@ -3850,6 +3850,10 @@ public:
     static Thread *GetAllThreadList(Thread *Prev, ULONG mask, ULONG bits);
     static Thread *GetThreadList(Thread *Prev);
 
+    // Walk the thread list without asserting the ThreadStore lock.
+    // Only safe from a crash handler where lock acquisition is impossible.
+    static Thread *GetThreadListNoLock(Thread *Prev);
+
     // We shut down the EE when the last non-background thread terminates.  This event
     // is used to signal the main thread when this condition occurs.
     void            WaitForOtherThreads();

@@ -4290,6 +4290,32 @@ Thread *ThreadStore::GetThreadList(Thread *cursor)
     return GetAllThreadList(cursor, (Thread::TS_Unstarted | Thread::TS_Dead), 0);
 }
 
+// Walk the thread list without asserting the ThreadStore lock.
+// This is only safe from crash handlers where we cannot acquire locks.
+// Filters out unstarted and dead threads.
+Thread *ThreadStore::GetThreadListNoLock(Thread *cursor)
+{
+    WRAPPER_NO_CONTRACT;
+
+    if (s_pThreadStore == nullptr)
+        return nullptr;
+
+    while (TRUE)
+    {
+        cursor = (cursor
+                  ? s_pThreadStore->m_ThreadList.GetNext(cursor)
+                  : s_pThreadStore->m_ThreadList.GetHead());
+
+        if (cursor == nullptr)
+            break;
+
+        if (!cursor->IsUnstarted() && !cursor->IsDead())
+            break;
+    }
+
+    return cursor;
+}
+
 #ifndef DACCESS_COMPILE
 
 BOOL CLREventWaitWithTry(CLREventBase *pEvent, DWORD timeout, BOOL fAlertable, DWORD *pStatus)

@@ -116,6 +116,7 @@
 //     boxing this describes this feature.
 
 #include "common.h"
+#include "crashreporthelper.h"
 
 #include "vars.hpp"
 #include "log.h"
@@ -702,6 +703,11 @@ void EEStartupHelper()
 #ifdef HOST_ANDROID
         PAL_SetLogManagedCallstackForSignalCallback(EEPolicy::LogManagedCallstackForSignal);
 #endif // HOST_ANDROID
+
+#if defined(TARGET_LINUX) || defined(TARGET_ANDROID) || defined(TARGET_APPLE)
+        // Register the VM crash report callback for the in-proc crash reporter
+        CrashReport_RegisterVMCallback();
+#endif // TARGET_LINUX || TARGET_ANDROID || TARGET_APPLE
 
 #ifdef STRESS_LOG
         if (CLRConfig::GetConfigValue(CLRConfig::UNSUPPORTED_StressLog, g_pConfig->StressLog()) != 0) {

@@ -61,6 +61,10 @@ SET_DEFAULT_DEBUG_CHANNEL(PROCESS); // some headers have code with asserts, so d
 #include <dlfcn.h>
 #include <limits.h>
 
+#if defined(__linux__) || defined(__APPLE__)
+#include "crashreportwriter.h"
+#endif
+
 #ifdef __linux__
 #include <linux/membarrier.h>
 #include <sys/syscall.h>
@@ -2615,6 +2619,13 @@ Return
 BOOL
 PROCAbortInitialize()
 {
+#if defined(__linux__) || defined(__APPLE__)
+    // Initialize the in-process crash report writer from environment variables.
+    // When DOTNET_EnableInProcessCrashReport=1 is set, the in-process reporter generates
+    // a JSON crash report directly, without forking createdump.
+    CrashReport_Initialize();
+#endif
+
     CLRConfigNoCache enabledCfg = CLRConfigNoCache::Get("DbgEnableMiniDump", /*noprefix*/ false, &getenv);
 
     DWORD enabled = 0;
@@ -2786,7 +2797,6 @@ Parameters:
 
 (no return value)
 --*/
-#ifdef HOST_ANDROID
 #include <minipal/log.h>
 VOID
 PROCCreateCrashDumpIfEnabled(int signal, siginfo_t* siginfo, void* context, bool serialize)
@@ -2794,16 +2804,20 @@ PROCCreateCrashDumpIfEnabled(int signal, siginfo_t* siginfo, void* context, bool
     // Preserve context pointer to prevent optimization
     DoNotOptimize(&context);
 
-    // TODO: Dump stress log into logcat and/or file when enabled?
-    minipal_log_write_fatal("Aborting process.\n");
-}
-#else
-VOID
-PROCCreateCrashDumpIfEnabled(int signal, siginfo_t* siginfo, void* context, bool serialize)
-{
-    // Preserve context pointer to prevent optimization
-    DoNotOptimize(&context);
+#if defined(__linux__) || defined(__APPLE__)
+    // If the in-process crash reporter is enabled (DOTNET_EnableInProcessCrashReport=1),
+    // generate a JSON crash report directly without forking createdump.
+    if (CrashReport_IsEnabled())
+    {
+        CrashReport_Generate(signal, siginfo, context);
+        return;
+    }
+#endif
 
+#ifdef HOST_ANDROID
+    // Android does not support createdump (no fork/exec in signal handler).
+    minipal_log_write_fatal("Aborting process.\n");
+#else
     // If enabled, launch the create minidump utility and wait until it completes
     if (g_argvCreateDump[0] != nullptr)
     {
@@ -2873,6 +2887,14 @@ PROCCreateCrashDumpIfEnabled(int signal, siginfo_t* siginfo, void* context, bool
         free(signalErrnoArg);
         free(signalAddressArg);
     }
+#endif // HOST_ANDROID
+}
+
+#if defined(__linux__) || defined(__APPLE__)
+BOOL
+PROCIsCrashReportEnabled()
+{
+    return CrashReport_IsEnabled();
 }
 #endif
 

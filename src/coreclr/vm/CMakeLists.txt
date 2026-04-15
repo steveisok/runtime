@@ -7,6 +7,10 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../interop/inc)
 include_directories(${CLR_SRC_NATIVE_DIR})
 include_directories(${RUNTIME_DIR})
 
+if(CLR_CMAKE_TARGET_ANDROID OR CLR_CMAKE_TARGET_APPLE)
+  include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../debug/crashreport)
+endif()
+
 # needed when zLib compression is used
 include_directories(${CLR_SRC_NATIVE_DIR}/libs/System.IO.Compression.Native)
 include_directories(${CLR_SRC_NATIVE_DIR}/libs/Common)
@@ -324,6 +328,7 @@ set(VM_SOURCES_WKS
     eecontract.cpp
     eepolicy.cpp
     eetoprofinterfaceimpl.cpp
+    crashreporthelper.cpp
     eventpipeinternal.cpp
     fcall.cpp
     fieldmarshaler.cpp
