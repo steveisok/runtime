@@ -15,6 +15,25 @@
 #include <elf.h>
 #include <sys/user.h>
 #include <sys/procfs.h>
+
+// Android/Bionic doesn't define user_fpregs_struct — alias to the
+// platform-specific type, matching the convention in createdump/threadinfo.h.
+#if defined(__arm__)
+#define user_regs_struct  user_regs
+#define user_fpregs_struct user_fpregs
+#elif defined(__aarch64__)
+#define user_fpregs_struct user_fpsimd_struct
+#elif defined(__riscv)
+struct user_fpregs_struct
+{
+    unsigned long long fpregs[32];
+    unsigned long      fcsr;
+} __attribute__((__packed__));
+#elif defined(__loongarch64)
+#include <asm/sigcontext.h>
+#define user_fpregs_struct lasx_context
+#endif
+
 #elif defined(__APPLE__)
 #include <mach-o/loader.h>
 #include <mach/mach.h>
