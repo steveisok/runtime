@@ -22,6 +22,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <errno.h>
+#include <signal.h>
 #include <sys/stat.h>
 #include <minipal/log.h>
 
@@ -646,6 +647,13 @@ void InProcDump_Generate(int signal, siginfo_t* siginfo, void* context)
 
     minipal_log_write_info("InProcDump_Generate: starting core dump generation\n");
 
+    // Block all signals during dump generation to prevent re-entrancy from
+    // secondary faults (e.g., SIGSEGV during /proc reads or memory scanning).
+    // sigprocmask is async-signal-safe per POSIX.
+    sigset_t blockAll, oldMask;
+    sigfillset(&blockAll);
+    sigprocmask(SIG_SETMASK, &blockAll, &oldMask);
+
     // Clear the state
     memset(&s_state, 0, sizeof(s_state));
     s_state.dumpType = s_dumpType;
@@ -753,6 +761,9 @@ void InProcDump_Generate(int signal, siginfo_t* siginfo, void* context)
     }
 
 #endif
+
+    // Restore original signal mask.
+    sigprocmask(SIG_SETMASK, &oldMask, NULL);
 }
 
 #endif // !JIT_STANDALONE_BUILD && (__linux__ || __APPLE__)
