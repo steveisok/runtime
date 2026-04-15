@@ -35,6 +35,56 @@ struct user_fpregs_struct
 
 #include <sys/procfs.h>
 
+#if defined(__ANDROID__)
+// Android's <sys/procfs.h> provides elf_siginfo, elf_gregset_t, and
+// ELF_PRARGSZ but does NOT define elf_prstatus/prstatus_t or
+// elf_prpsinfo/prpsinfo_t.  Define them here — these are ABI-stable
+// ELF core note structures consumed only by debuggers.
+#include <sys/time.h>
+
+struct elf_prstatus
+{
+    struct elf_siginfo pr_info;
+    short              pr_cursig;
+    unsigned long      pr_sigpend;
+    unsigned long      pr_sighold;
+    pid_t              pr_pid;
+    pid_t              pr_ppid;
+    pid_t              pr_pgrp;
+    pid_t              pr_sid;
+    struct timeval     pr_utime;
+    struct timeval     pr_stime;
+    struct timeval     pr_cutime;
+    struct timeval     pr_cstime;
+    elf_gregset_t      pr_reg;
+    int                pr_fpvalid;
+};
+typedef struct elf_prstatus prstatus_t;
+
+struct elf_prpsinfo
+{
+    char               pr_state;
+    char               pr_sname;
+    char               pr_zomb;
+    char               pr_nice;
+    unsigned long      pr_flag;
+#if defined(__LP64__)
+    unsigned int       pr_uid;
+    unsigned int       pr_gid;
+#else
+    unsigned short     pr_uid;
+    unsigned short     pr_gid;
+#endif
+    pid_t              pr_pid;
+    pid_t              pr_ppid;
+    pid_t              pr_pgrp;
+    pid_t              pr_sid;
+    char               pr_fname[16];
+    char               pr_psargs[ELF_PRARGSZ];
+};
+typedef struct elf_prpsinfo prpsinfo_t;
+#endif // __ANDROID__
+
 #elif defined(__APPLE__)
 #include <mach-o/loader.h>
 #include <mach/mach.h>

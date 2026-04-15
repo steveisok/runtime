@@ -26,7 +26,6 @@
 #include <unistd.h>
 #include <string.h>
 #include <elf.h>
-#include <sys/procfs.h>
 
 // ---------------------------------------------------------------------------
 // ELF type aliases
