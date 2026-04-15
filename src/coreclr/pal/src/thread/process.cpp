@@ -63,6 +63,7 @@ SET_DEFAULT_DEBUG_CHANNEL(PROCESS); // some headers have code with asserts, so d
 
 #if defined(__linux__) || defined(__APPLE__)
 #include "crashreportwriter.h"
+#include "inprocdump.h"
 #endif
 
 #ifdef __linux__
@@ -2624,6 +2625,9 @@ PROCAbortInitialize()
     // When DOTNET_EnableInProcessCrashReport=1 is set, the in-process reporter generates
     // a JSON crash report directly, without forking createdump.
     CrashReport_Initialize();
+
+    // Initialize in-process core dump writer (also gated on DOTNET_EnableInProcessCrashReport).
+    InProcDump_Initialize();
 #endif
 
     CLRConfigNoCache enabledCfg = CLRConfigNoCache::Get("DbgEnableMiniDump", /*noprefix*/ false, &getenv);
@@ -2810,6 +2814,7 @@ PROCCreateCrashDumpIfEnabled(int signal, siginfo_t* siginfo, void* context, bool
     if (CrashReport_IsEnabled())
     {
         CrashReport_Generate(signal, siginfo, context);
+        InProcDump_Generate(signal, siginfo, context);
         return;
     }
 #endif

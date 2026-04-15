@@ -142,8 +142,22 @@ if(CLR_CMAKE_TARGET_LINUX OR CLR_CMAKE_TARGET_APPLE)
   list(APPEND PLATFORM_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/../../debug/crashreport/jsonwriter.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../../debug/crashreport/crashreportwriter.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../debug/crashreport/inprocdump.cpp
   )
 endif(CLR_CMAKE_TARGET_LINUX OR CLR_CMAKE_TARGET_APPLE)
+
+if(CLR_CMAKE_TARGET_LINUX)
+  list(APPEND PLATFORM_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../debug/crashreport/inprocdumpelf.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../debug/crashreport/inprocdumpmaps.cpp
+  )
+endif(CLR_CMAKE_TARGET_LINUX)
+
+if(CLR_CMAKE_TARGET_APPLE)
+  list(APPEND PLATFORM_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../debug/crashreport/inprocdumpmacho.cpp
+  )
+endif(CLR_CMAKE_TARGET_APPLE)
 
 if(CLR_CMAKE_HOST_ARCH_ARM)
   if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
