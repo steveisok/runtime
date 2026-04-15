@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RunAOTCompilation>false</RunAOTCompilation>
+    <TestRuntime>true</TestRuntime>
+    <TargetFramework>$(NetCoreAppCurrent)</TargetFramework>
+    <MainLibraryFileName>Android.Device_Emulator.CrashDump.Abort.Test.dll</MainLibraryFileName>
+    <ExpectedExitCode>134</ExpectedExitCode>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AndroidEnv Include="DOTNET_EnableInProcessCrashReport">
+      <Value>1</Value>
+    </AndroidEnv>
+    <AndroidEnv Include="CRASH_SCENARIO">
+      <Value>abort</Value>
+    </AndroidEnv>
+  </ItemGroup>
+</Project>
