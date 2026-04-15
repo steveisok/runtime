@@ -103,7 +103,27 @@ void InProcDump_Initialize(void)
     }
     else
     {
-        s_dumpPath[0] = '\0';
+        // If no explicit path, try TEST_RESULTS_DIR (set by xharness on Android/iOS).
+        // This ensures the dump lands in the directory xharness pulls back to the host.
+        const char* resultsDir = getenv("TEST_RESULTS_DIR");
+        if (resultsDir != NULL && resultsDir[0] != '\0')
+        {
+            int i = 0;
+            while (resultsDir[i] && i < (int)sizeof(s_dumpPath) - 32)
+            {
+                s_dumpPath[i] = resultsDir[i];
+                i++;
+            }
+            const char* suffix = "/crash.coredump";
+            int j = 0;
+            while (suffix[j] && i < (int)sizeof(s_dumpPath) - 1)
+                s_dumpPath[i++] = suffix[j++];
+            s_dumpPath[i] = '\0';
+        }
+        else
+        {
+            s_dumpPath[0] = '\0';
+        }
     }
 
 #if defined(__linux__)
