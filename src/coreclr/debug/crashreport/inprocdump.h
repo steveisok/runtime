@@ -120,6 +120,15 @@ extern "C" {
 // deduplication typically reduces the count well below this limit.
 #define INPROC_MAX_MODULE_HEADERS   1536
 
+// Maximum number of managed debug memory pages for Tier 2 (clrstack support).
+// Covers: ThreadStore, Thread objects, code heaps, nibble maps, RangeSectionMap
+// levels/fragments, RangeSections, MethodDescs, MethodDescChunks, MethodTables,
+// Modules, and PE metadata sections. With dedup, typically ~1000-3000 entries.
+#define INPROC_MAX_MANAGED_DEBUG_PAGES  4096
+
+// Maximum return addresses to scan per thread's stack for IP resolution.
+#define INPROC_MAX_STACK_IPS        64
+
 // ---------------------------------------------------------------------------
 // SpecialDiagInfo — synthetic dump segment for SOS/dotnet-dump discovery
 // ---------------------------------------------------------------------------
@@ -161,6 +170,69 @@ enum InProcDumpType
     InProcDumpType_None = 0,
     InProcDumpType_Mini = 1,    // Thread stacks + registers + modules
     InProcDumpType_Full = 2,    // All readable memory
+};
+
+// ---------------------------------------------------------------------------
+// VM-provided offsets and addresses for managed debug page capture (Tier 2).
+// Populated at VM startup by InProcDump_InitManagedDebug(), consumed at crash
+// time to capture memory pages needed for clrthreads/clrstack in the dump.
+// ---------------------------------------------------------------------------
+
+struct InProcManagedDebugInfo
+{
+    int initialized;
+
+    // Global root addresses (in runtime data segment, already captured)
+    uint64_t threadStoreAddr;       // Address of s_pThreadStore pointer
+    uint64_t eeJitManagerAddr;      // Address of m_pEEJitManager pointer
+    uint64_t rangeSectionMapAddr;   // Address of g_codeRangeMap data
+
+    // ThreadStore → Thread linked list offsets
+    uint32_t threadStore_FirstThreadLink;
+    uint32_t threadStore_ThreadCount;
+    uint32_t thread_Link;
+    uint32_t thread_OSId;
+    uint32_t thread_State;
+    uint32_t thread_RuntimeThreadLocals;
+
+    // EEJitManager → HeapList chain offsets
+    uint32_t eeJitManager_AllCodeHeaps;
+    uint32_t heapList_Next;
+    uint32_t heapList_StartAddress;
+    uint32_t heapList_EndAddress;
+    uint32_t heapList_MapBase;
+    uint32_t heapList_HeaderMap;
+
+    // RangeSectionMap offsets
+    uint32_t rangeSectionMap_TopLevelData;
+
+    // RangeSectionFragment offsets
+    uint32_t fragment_RangeBegin;
+    uint32_t fragment_RangeEndOpen;
+    uint32_t fragment_RangeSection;
+    uint32_t fragment_Next;
+
+    // RangeSection offsets
+    uint32_t rangeSection_RangeBegin;
+    uint32_t rangeSection_RangeEndOpen;
+    uint32_t rangeSection_Flags;
+    uint32_t rangeSection_HeapList;
+    uint32_t rangeSection_R2RModule;
+
+    // RealCodeHeader offset
+    uint32_t realCodeHeader_MethodDesc;
+
+    // MethodDesc → MethodDescChunk computation
+    uint32_t methodDesc_ChunkIndex;
+    uint32_t methodDesc_Alignment;
+    uint32_t methodDescChunk_Size;
+    uint32_t methodDescChunk_MethodTable;
+
+    // MethodTable → Module
+    uint32_t methodTable_Module;
+
+    // Module → PE base
+    uint32_t module_Base;
 };
 
 // ---------------------------------------------------------------------------
@@ -259,6 +331,13 @@ struct InProcDumpState
     struct InProcDyldRange moduleHeaders[INPROC_MAX_MODULE_HEADERS];
     int moduleHeaderCount;
 
+    // Managed debug pages for Tier 2 (clrstack/clrthreads support).
+    // Captured at crash time by walking runtime data structures (ThreadStore,
+    // code heaps, RangeSectionMap, MethodDescs, etc.) using compile-time offsets
+    // provided by the VM at startup.
+    struct InProcDyldRange managedDebugPages[INPROC_MAX_MANAGED_DEBUG_PAGES];
+    int managedDebugPageCount;
+
 #if defined(__linux__)
     // Auxiliary vector
     uint8_t auxv[4096];
@@ -287,6 +366,10 @@ struct InProcDumpState
 // Initialize at startup — reads env vars, opens /proc/self/mem.
 // Called from PROCAbortInitialize().
 void InProcDump_Initialize(void);
+
+// Provide VM struct offsets and global addresses for managed debug capture.
+// Called from VM startup (EEStartupHelper) after runtime data structures are initialized.
+void InProcDump_InitManagedDebug(const struct InProcManagedDebugInfo* info);
 
 // Returns the configured dump type, or InProcDumpType_None if disabled.
 enum InProcDumpType InProcDump_GetDumpType(void);

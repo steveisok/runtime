@@ -14,4 +14,8 @@
 // Register the VM crash report callback with the PAL.
 // Called during EE startup on Linux/Android/Apple.
 void CrashReport_RegisterVMCallback();
+
+// Provide managed debug offsets for Tier 2 dump capture.
+// Called during EE startup after runtime data structures are initialized.
+void CrashReport_InitManagedDebugDump();
 #endif

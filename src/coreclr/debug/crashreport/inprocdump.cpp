@@ -83,6 +83,12 @@ static int s_dyldRangeCount = 0;
 // of every loaded module so all headers are present in the dump.
 static struct InProcDyldRange s_moduleHeaders[INPROC_MAX_MODULE_HEADERS];
 static int s_moduleHeaderCount = 0;
+
+// Saved Mach thread list for deferred resume. CollectCrashThread_Apple suspends
+// threads but does not resume them — we defer resume until after Tier 2 capture.
+static thread_act_array_t s_frozenThreads = NULL;
+static mach_msg_type_number_t s_frozenThreadCount = 0;
+static mach_port_t s_crashMachThread = MACH_PORT_NULL;
 #endif
 
 #if defined(__linux__)
@@ -90,6 +96,16 @@ static int s_moduleHeaderCount = 0;
 // doesn't lose it.
 static int s_fdMem = -1;
 #endif
+
+// Managed debug info — VM-provided offsets and global addresses for Tier 2.
+// Populated by InProcDump_InitManagedDebug() during VM startup.
+static struct InProcManagedDebugInfo s_managedDebugInfo;
+
+// Managed debug pages captured at crash time for clrstack/clrthreads support.
+// Stored separately from s_state to avoid inflating InProcDumpState further
+// than necessary. Copied into s_state at dump generation time.
+static struct InProcDyldRange s_managedDebugPages[INPROC_MAX_MANAGED_DEBUG_PAGES];
+static int s_managedDebugPageCount = 0;
 
 // The dump state is large (~multi-MB) and must be static (no malloc in handler).
 // Only one crash can be in progress at a time (ensured by CAS above).
@@ -468,6 +484,18 @@ enum InProcDumpType InProcDump_GetDumpType(void)
     return s_dumpType;
 }
 
+// Forward declaration — defined below after BuildDumpPath
+static void WriteStderr(const char* msg);
+
+void InProcDump_InitManagedDebug(const struct InProcManagedDebugInfo* info)
+{
+    if (info == NULL || !info->initialized)
+        return;
+
+    memcpy(&s_managedDebugInfo, info, sizeof(s_managedDebugInfo));
+    WriteStderr("InProcDump: Managed debug offsets initialized (Tier 2 enabled)\n");
+}
+
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
@@ -616,6 +644,601 @@ static void BuildDumpPath(char* path, int pathSize, int pid)
         path[pos++] = suffix[i++];
 
     path[pos] = '\0';
+}
+
+// ---------------------------------------------------------------------------
+// Tier 2: Managed debug page capture
+//
+// Walks runtime data structures to capture memory pages needed for
+// clrthreads and clrstack in the dump. All code is async-signal-safe.
+//
+// The approach:
+//   1. Walk ThreadStore → Thread linked list (enables clrthreads)
+//   2. Walk EEJitManager → HeapList linked list (code heaps + nibble maps)
+//   3. Walk RangeSectionMap for IPs found on thread stacks
+//   4. For each resolved IP: RealCodeHeader → MethodDesc → MethodDescChunk
+//      → MethodTable → Module (enables clrstack method names)
+// ---------------------------------------------------------------------------
+
+// Safe pointer read: returns the value at `addr` if it falls within a known
+// readable memory region, or 0 if not. This prevents faulting on corrupted or
+// unmapped pointers during the crash handler.
+static uint64_t ReadPointerSafe(const struct InProcDumpState* state, uint64_t addr)
+{
+    if (addr == 0)
+        return 0;
+
+    int idx = InProcDump_FindRegion(state, addr);
+    if (idx < 0)
+        return 0;
+
+    // Ensure the full pointer fits within the region
+    if (addr + sizeof(uint64_t) > state->regions[idx].end)
+        return 0;
+
+    // Use memcpy to avoid alignment issues (code heap pointers may be 4-byte aligned)
+    uint64_t value = 0;
+    memcpy(&value, (const void*)addr, sizeof(uint64_t));
+    return value;
+}
+
+// Safe byte read
+static uint8_t ReadByteSafe(const struct InProcDumpState* state, uint64_t addr)
+{
+    if (addr == 0)
+        return 0;
+
+    int idx = InProcDump_FindRegion(state, addr);
+    if (idx < 0)
+        return 0;
+
+    return *(const uint8_t*)addr;
+}
+
+// Safe uint32 read
+static uint32_t ReadU32Safe(const struct InProcDumpState* state, uint64_t addr)
+{
+    if (addr == 0 || (addr & 3) != 0)
+        return 0;
+
+    int idx = InProcDump_FindRegion(state, addr);
+    if (idx < 0)
+        return 0;
+
+    if (addr + sizeof(uint32_t) > state->regions[idx].end)
+        return 0;
+
+    return *(const uint32_t*)addr;
+}
+
+// Add a page-aligned memory range to the managed debug pages array with dedup.
+static void AddManagedPage(uint64_t addr, uint64_t size)
+{
+    if (addr == 0 || size == 0)
+        return;
+
+    // Page-align
+    uint64_t pageAddr = addr & ~(uint64_t)0xFFF;
+    uint64_t pageEnd = (addr + size + 0xFFF) & ~(uint64_t)0xFFF;
+    uint64_t pageSize = pageEnd - pageAddr;
+
+    // Dedup: check if this page is already captured
+    for (int i = 0; i < s_managedDebugPageCount; i++)
+    {
+        if (s_managedDebugPages[i].addr == pageAddr &&
+            s_managedDebugPages[i].size >= pageSize)
+            return;
+    }
+
+    if (s_managedDebugPageCount >= INPROC_MAX_MANAGED_DEBUG_PAGES)
+        return;
+
+    s_managedDebugPages[s_managedDebugPageCount].addr = pageAddr;
+    s_managedDebugPages[s_managedDebugPageCount].size = pageSize;
+    s_managedDebugPageCount++;
+}
+
+// Capture the page containing a given address.
+static void CapturePage(const struct InProcDumpState* state, uint64_t addr)
+{
+    if (addr == 0)
+        return;
+
+    // Verify the address is in a readable region before capturing
+    if (InProcDump_FindRegion(state, addr) < 0)
+        return;
+
+    AddManagedPage(addr, 1);
+}
+
+// Walk the ThreadStore → Thread linked list and capture each Thread object's page.
+// This enables clrthreads to enumerate managed threads.
+static void CaptureThreadObjects(const struct InProcDumpState* state,
+                                 const struct InProcManagedDebugInfo* dbg)
+{
+    // Read s_pThreadStore (pointer-to-pointer: global contains address of the pointer)
+    uint64_t threadStorePtr = ReadPointerSafe(state, dbg->threadStoreAddr);
+    if (threadStorePtr == 0)
+        return;
+
+    // Capture the ThreadStore object itself
+    CapturePage(state, threadStorePtr);
+
+    // Read thread count for bounds checking
+    uint32_t threadCount = ReadU32Safe(state, threadStorePtr + dbg->threadStore_ThreadCount);
+    if (threadCount == 0 || threadCount > 1024)
+        return;
+
+    // Read first thread link: ThreadStore + FirstThreadLink offset gives us
+    // the address of the SLink that points to the first Thread's m_Link field
+    uint64_t linkAddr = ReadPointerSafe(state, threadStorePtr + dbg->threadStore_FirstThreadLink);
+    if (linkAddr == 0)
+        return;
+
+    // Walk the linked list. Each link points to the next Thread's m_Link field.
+    // The Thread object starts at (linkAddr - thread_Link offset).
+    int walked = 0;
+    while (linkAddr != 0 && walked < (int)threadCount + 10)
+    {
+        // Compute Thread object address from its Link field address
+        uint64_t threadAddr = linkAddr - dbg->thread_Link;
+        CapturePage(state, threadAddr);
+
+        // Also capture RuntimeThreadLocals if present
+        uint64_t rtlPtr = ReadPointerSafe(state, threadAddr + dbg->thread_RuntimeThreadLocals);
+        CapturePage(state, rtlPtr);
+
+        // Follow the linked list: Thread.m_Link contains an SLink with a
+        // single pointer field (_next) at offset 0.
+        linkAddr = ReadPointerSafe(state, linkAddr);
+        walked++;
+    }
+}
+
+// Walk the EEJitManager → HeapList linked list and capture each HeapList node
+// plus its nibble map. This provides the code heap infrastructure that the cDAC
+// needs for IP → code block resolution.
+static void CaptureCodeHeaps(const struct InProcDumpState* state,
+                             const struct InProcManagedDebugInfo* dbg)
+{
+    // Read m_pEEJitManager (pointer-to-pointer)
+    uint64_t jitMgrPtr = ReadPointerSafe(state, dbg->eeJitManagerAddr);
+    if (jitMgrPtr == 0)
+        return;
+
+    // Capture EEJitManager object
+    CapturePage(state, jitMgrPtr);
+
+    // Read AllCodeHeaps (first HeapList node)
+    uint64_t heapListPtr = ReadPointerSafe(state, jitMgrPtr + dbg->eeJitManager_AllCodeHeaps);
+
+    int heapCount = 0;
+    while (heapListPtr != 0 && heapCount < 256)
+    {
+        // Capture HeapList node
+        CapturePage(state, heapListPtr);
+
+        // Read nibble map pointer and capture it
+        uint64_t mapBase = ReadPointerSafe(state, heapListPtr + dbg->heapList_MapBase);
+        uint64_t pHdrMap = ReadPointerSafe(state, heapListPtr + dbg->heapList_HeaderMap);
+        uint64_t startAddr = ReadPointerSafe(state, heapListPtr + dbg->heapList_StartAddress);
+        uint64_t endAddr = ReadPointerSafe(state, heapListPtr + dbg->heapList_EndAddress);
+
+        if (pHdrMap != 0 && mapBase != 0 && endAddr > startAddr)
+        {
+            // Nibble map size: each 32-byte bucket uses 1 nibble (4 bits).
+            // 8 nibbles per uint32_t, so each DWORD covers 256 bytes.
+            // mapEntries = (heapSize + 31) / 32 buckets
+            // mapBytes = ((mapEntries + 7) / 8) * 4 bytes (round up to DWORD)
+            uint64_t heapSize = endAddr - mapBase;
+            uint64_t mapEntries = (heapSize + 31) / 32;
+            uint64_t mapBytes = ((mapEntries + 7) / 8) * 4;
+            if (mapBytes > 0 && mapBytes < 16 * 1024 * 1024)
+            {
+                AddManagedPage(pHdrMap, mapBytes);
+            }
+        }
+
+        // Follow linked list
+        heapListPtr = ReadPointerSafe(state, heapListPtr + dbg->heapList_Next);
+        heapCount++;
+    }
+}
+
+// Walk the RangeSectionMap for a single IP address to capture the path from
+// L5 → L4 → L3 → L2 → L1 → Fragment → RangeSection.
+static uint64_t CaptureRangeSectionForIP(const struct InProcDumpState* state,
+                                          const struct InProcManagedDebugInfo* dbg,
+                                          uint64_t ip)
+{
+    // The RangeSectionMap is a 5-level trie on 64-bit.
+    // Each level has 256 entries (8 bits of address per level).
+    // maxSetBit=56, bitsPerLevel=8, mapLevels=5, bitsAtLastLevel=17
+    //
+    // EffectiveBitsForLevel(addr, level):
+    //   addressBitsUsedInMap = addr >> (56 + 1 - 5*8) = addr >> 17
+    //   L5: (addr >> 17) >> 32 = addr >> 49, & 0xFF  → bits [56:49]
+    //   L4: (addr >> 17) >> 24 = addr >> 41, & 0xFF  → bits [48:41]
+    //   L3: (addr >> 17) >> 16 = addr >> 33, & 0xFF  → bits [40:33]
+    //   L2: (addr >> 17) >> 8  = addr >> 25, & 0xFF  → bits [32:25]
+    //   L1: (addr >> 17) >> 0  = addr >> 17, & 0xFF  → bits [24:17]
+
+    uint64_t mapAddr = dbg->rangeSectionMapAddr + dbg->rangeSectionMap_TopLevelData;
+
+    // L5: index from bits [56:49]
+    uint64_t l5Idx = (ip >> 49) & 0xFF;
+    uint64_t l4Ptr = ReadPointerSafe(state, mapAddr + l5Idx * 8);
+    // Mask off collectible tag bit
+    l4Ptr &= ~(uint64_t)1;
+    if (l4Ptr == 0) return 0;
+    CapturePage(state, l4Ptr);
+
+    // L4: index from bits [48:41]
+    uint64_t l4Idx = (ip >> 41) & 0xFF;
+    uint64_t l3Ptr = ReadPointerSafe(state, l4Ptr + l4Idx * 8);
+    l3Ptr &= ~(uint64_t)1;
+    if (l3Ptr == 0) return 0;
+    CapturePage(state, l3Ptr);
+
+    // L3: index from bits [40:33]
+    uint64_t l3Idx = (ip >> 33) & 0xFF;
+    uint64_t l2Ptr = ReadPointerSafe(state, l3Ptr + l3Idx * 8);
+    l2Ptr &= ~(uint64_t)1;
+    if (l2Ptr == 0) return 0;
+    CapturePage(state, l2Ptr);
+
+    // L2: index from bits [32:25]
+    uint64_t l2Idx = (ip >> 25) & 0xFF;
+    uint64_t l1Ptr = ReadPointerSafe(state, l2Ptr + l2Idx * 8);
+    l1Ptr &= ~(uint64_t)1;
+    if (l1Ptr == 0) return 0;
+    CapturePage(state, l1Ptr);
+
+    // L1: index from bits [24:17]. Each entry is a RangeSectionFragmentPointer.
+    uint64_t l1Idx = (ip >> 17) & 0xFF;
+    uint64_t fragPtr = ReadPointerSafe(state, l1Ptr + l1Idx * 8);
+    // Mask off collectible tag
+    fragPtr &= ~(uint64_t)1;
+    if (fragPtr == 0) return 0;
+
+    // Walk fragment linked list to find the one containing our IP
+    int fragCount = 0;
+    while (fragPtr != 0 && fragCount < 100)
+    {
+        CapturePage(state, fragPtr);
+
+        uint64_t rangeBegin = ReadPointerSafe(state, fragPtr + dbg->fragment_RangeBegin);
+        uint64_t rangeEnd = ReadPointerSafe(state, fragPtr + dbg->fragment_RangeEndOpen);
+
+        if (ip >= rangeBegin && ip < rangeEnd)
+        {
+            // Found the fragment — capture its RangeSection
+            uint64_t rangeSectionPtr = ReadPointerSafe(state, fragPtr + dbg->fragment_RangeSection);
+            if (rangeSectionPtr != 0)
+            {
+                CapturePage(state, rangeSectionPtr);
+                return rangeSectionPtr;
+            }
+        }
+
+        // Follow next pointer (mask collectible tag)
+        fragPtr = ReadPointerSafe(state, fragPtr + dbg->fragment_Next);
+        fragPtr &= ~(uint64_t)1;
+        fragCount++;
+    }
+
+    return 0;
+}
+
+// For a given RangeSection, capture the HeapList → NibbleMap → RealCodeHeader →
+// MethodDesc → MethodDescChunk → MethodTable → Module chain.
+static void CaptureMethodChainForIP(const struct InProcDumpState* state,
+                                     const struct InProcManagedDebugInfo* dbg,
+                                     uint64_t rangeSectionPtr,
+                                     uint64_t ip)
+{
+    // Read RangeSection flags to check if this is a code heap
+    uint32_t flags = ReadU32Safe(state, rangeSectionPtr + dbg->rangeSection_Flags);
+
+    // Check for RANGE_SECTION_CODEHEAP (0x2) — JIT'd code
+    if (flags & 0x2)
+    {
+        // Read HeapList pointer from RangeSection
+        uint64_t heapListPtr = ReadPointerSafe(state, rangeSectionPtr + dbg->rangeSection_HeapList);
+        if (heapListPtr == 0) return;
+        CapturePage(state, heapListPtr);
+
+        // Read HeapList fields for nibble map lookup
+        uint64_t mapBase = ReadPointerSafe(state, heapListPtr + dbg->heapList_MapBase);
+        uint64_t pHdrMap = ReadPointerSafe(state, heapListPtr + dbg->heapList_HeaderMap);
+        if (mapBase == 0 || pHdrMap == 0 || ip < mapBase) return;
+
+        // NibbleMap lookup (constant-time algorithm matching CoreCLR's nibblemapmacros.h).
+        //
+        // Constants: BYTES_PER_BUCKET = 32, CODE_ALIGN = 4, NIBBLES_PER_DWORD = 8
+        // Each nibble covers a 32-byte bucket.
+        // Each uint32_t covers 8 buckets = 256 bytes.
+        // Nibble values: 0 = empty, 1-8 = offset within bucket (in DWORDs), 9-12 = pointer encoding.
+        //
+        // ADDR2POS(x) = x >> 5  (which 32-byte bucket)
+        // ADDR2OFFS(x) = ((x & 31) >> 2) + 1  (DWORD offset within bucket, 1-indexed)
+
+        uint64_t relAddr = ip - mapBase;
+        uint64_t bucketIdx = relAddr >> 5;  // ADDR2POS: which 32-byte bucket
+        uint64_t bucketByteIndex = ((relAddr & 31) >> 2) + 1;  // ADDR2OFFS within bucket
+        uint64_t mapUnitIdx = bucketIdx >> 3;  // which DWORD (8 nibbles per DWORD)
+        uint64_t nibbleIdx = bucketIdx & 7;   // which nibble within DWORD (0 = highest)
+        uint64_t mapUnitAddr = pHdrMap + mapUnitIdx * 4;
+
+        // Capture the nibble map page
+        CapturePage(state, mapUnitAddr);
+
+        uint32_t mapUnit = ReadU32Safe(state, mapUnitAddr);
+        uint64_t codeStart = 0;
+
+        // Check if this DWORD uses pointer encoding (nibble value 9-12 in lowest nibble)
+        if ((mapUnit & 0xF) > 8)
+        {
+            // Pointer encoding: decode directly
+            // DecodePointer: (dword & ~0xF) + (((dword & 0xF) - 9) << 2)
+            codeStart = mapBase + (uint64_t)((mapUnit & ~0xFu) + (((mapUnit & 0xFu) - 9) << 2));
+        }
+        else
+        {
+            // Standard nibble lookup: find the highest non-zero nibble at or before our position.
+            // Nibbles are stored MSB-first: nibble 0 is at bits [31:28], nibble 7 is at bits [3:0].
+            // Shift so our nibble is in the lowest position, then scan forward.
+            uint32_t shifted = mapUnit >> (4 * (7 - nibbleIdx));
+            uint32_t nibble = shifted & 0xF;
+
+            if (nibble != 0 && nibble <= bucketByteIndex)
+            {
+                // Found code start in our bucket
+                // POSOFF2ADDR: (pos << 5) + ((nibble - 1) << 2)
+                codeStart = mapBase + (bucketIdx << 5) + (((uint64_t)nibble - 1) << 2);
+            }
+            else
+            {
+                // Search backwards through remaining nibbles in this DWORD
+                int searchIdx = (int)nibbleIdx;
+                int found = 0;
+
+                if (nibble != 0 && nibble > bucketByteIndex)
+                {
+                    // Current nibble has a higher offset — skip it, go to previous bucket
+                    searchIdx--;
+                }
+
+                // Scan remaining nibbles backwards (shift right to move to previous nibbles)
+                shifted >>= 4;
+                searchIdx--;
+
+                while (searchIdx >= 0 && !found)
+                {
+                    nibble = shifted & 0xF;
+                    if (nibble != 0)
+                    {
+                        uint64_t pos = mapUnitIdx * 8 + (uint64_t)searchIdx;
+                        codeStart = mapBase + (pos << 5) + (((uint64_t)nibble - 1) << 2);
+                        found = 1;
+                    }
+                    shifted >>= 4;
+                    searchIdx--;
+                }
+
+                if (!found && mapUnitIdx > 0)
+                {
+                    // Check previous DWORD
+                    uint64_t prevMapUnitAddr = pHdrMap + (mapUnitIdx - 1) * 4;
+                    CapturePage(state, prevMapUnitAddr);
+                    uint32_t prevUnit = ReadU32Safe(state, prevMapUnitAddr);
+
+                    if (prevUnit != 0)
+                    {
+                        if ((prevUnit & 0xF) > 8)
+                        {
+                            // Previous DWORD is pointer encoded
+                            codeStart = mapBase + (uint64_t)((prevUnit & ~0xFu) + (((prevUnit & 0xFu) - 9) << 2));
+                        }
+                        else
+                        {
+                            // Find highest non-zero nibble in previous DWORD
+                            for (int n = 7; n >= 0; n--)
+                            {
+                                uint32_t nib = (prevUnit >> (4 * (7 - n))) & 0xF;
+                                if (nib != 0)
+                                {
+                                    uint64_t pos = (mapUnitIdx - 1) * 8 + (uint64_t)n;
+                                    codeStart = mapBase + (pos << 5) + (((uint64_t)nib - 1) << 2);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (codeStart == 0) return;
+
+        // RealCodeHeader is pointed to by [codeStart - 8] (pointer-sized)
+        uint64_t codeHeaderIndirect = codeStart - 8;
+        uint64_t codeHeaderPtr = ReadPointerSafe(state, codeHeaderIndirect);
+        if (codeHeaderPtr == 0) return;
+        CapturePage(state, codeHeaderPtr);
+
+        // Read MethodDesc from RealCodeHeader
+        uint64_t methodDescPtr = ReadPointerSafe(state, codeHeaderPtr + dbg->realCodeHeader_MethodDesc);
+        if (methodDescPtr == 0) return;
+        CapturePage(state, methodDescPtr);
+
+        // Compute MethodDescChunk address:
+        // chunkAddr = methodDescPtr - sizeof(MethodDescChunk) - (ChunkIndex * alignment)
+        uint8_t chunkIndex = ReadByteSafe(state, methodDescPtr + dbg->methodDesc_ChunkIndex);
+        uint64_t chunkAddr = methodDescPtr - dbg->methodDescChunk_Size
+                           - ((uint64_t)chunkIndex * dbg->methodDesc_Alignment);
+        if (chunkAddr == 0) return;
+        CapturePage(state, chunkAddr);
+
+        // Read MethodTable from MethodDescChunk
+        uint64_t methodTablePtr = ReadPointerSafe(state, chunkAddr + dbg->methodDescChunk_MethodTable);
+        if (methodTablePtr == 0) return;
+        CapturePage(state, methodTablePtr);
+
+        // Read Module from MethodTable
+        uint64_t modulePtr = ReadPointerSafe(state, methodTablePtr + dbg->methodTable_Module);
+        if (modulePtr == 0) return;
+        CapturePage(state, modulePtr);
+
+        // Read PE base from Module (for metadata resolution)
+        uint64_t peBase = ReadPointerSafe(state, modulePtr + dbg->module_Base);
+        if (peBase != 0)
+        {
+            // Capture the PE header page (metadata section discovery)
+            CapturePage(state, peBase);
+        }
+    }
+    else if (!(flags & 0x4))  // Not RANGE_SECTION_RANGELIST
+    {
+        // R2R module — capture the Module pointer directly from RangeSection
+        uint64_t modulePtr = ReadPointerSafe(state, rangeSectionPtr + dbg->rangeSection_R2RModule);
+        if (modulePtr != 0)
+        {
+            CapturePage(state, modulePtr);
+            uint64_t peBase = ReadPointerSafe(state, modulePtr + dbg->module_Base);
+            CapturePage(state, peBase);
+        }
+    }
+}
+
+// Scan a thread's stack for potential return addresses (code pointers).
+// We use frame-pointer chain walking on ARM64, with fallback to stack scanning.
+static void CollectStackIPs(const struct InProcDumpState* state,
+                            const struct InProcThreadInfo* thread,
+                            uint64_t* ips, int* ipCount, int maxIPs)
+{
+    *ipCount = 0;
+
+    if (!thread->hasGPRegs)
+        return;
+
+    uint64_t ip = 0;
+    uint64_t fp = 0;
+    uint64_t sp = 0;
+
+#if defined(__APPLE__) && defined(__aarch64__)
+    ip = arm_thread_state64_get_pc(thread->gpRegs);
+    fp = arm_thread_state64_get_fp(thread->gpRegs);
+    sp = arm_thread_state64_get_sp(thread->gpRegs);
+    // Also capture LR as a potential return address
+    uint64_t lr = arm_thread_state64_get_lr(thread->gpRegs);
+    if (lr != 0 && *ipCount < maxIPs)
+        ips[(*ipCount)++] = lr;
+#elif defined(__linux__) && defined(__aarch64__)
+    ip = thread->gpRegs.pc;
+    fp = thread->gpRegs.regs[29]; // x29 = FP
+    sp = thread->gpRegs.sp;
+    uint64_t lr = thread->gpRegs.regs[30]; // x30 = LR
+    if (lr != 0 && *ipCount < maxIPs)
+        ips[(*ipCount)++] = lr;
+#elif defined(__x86_64__)
+#if defined(__APPLE__)
+    ip = thread->gpRegs.__rip;
+    fp = thread->gpRegs.__rbp;
+    sp = thread->gpRegs.__rsp;
+#else
+    ip = thread->gpRegs.rip;
+    fp = thread->gpRegs.rbp;
+    sp = thread->gpRegs.rsp;
+#endif
+#endif
+
+    // Add current IP
+    if (ip != 0 && *ipCount < maxIPs)
+        ips[(*ipCount)++] = ip;
+
+    // Walk frame pointer chain to collect return addresses
+    // ARM64: FP points to [saved_FP, saved_LR] pair
+    // x86_64: RBP points to [saved_RBP, return_address] pair
+    uint64_t currentFP = fp;
+    int frameCount = 0;
+
+    while (currentFP != 0 && frameCount < maxIPs && *ipCount < maxIPs)
+    {
+        // Validate FP is in a readable region and properly aligned
+        int fpRegion = InProcDump_FindRegion(state, currentFP);
+        if (fpRegion < 0)
+            break;
+
+        // Ensure we can read two pointers at FP
+        if (currentFP + 16 > state->regions[fpRegion].end)
+            break;
+
+        // Ensure FP is 16-byte aligned (ARM64 requirement)
+        if (currentFP & 0xF)
+            break;
+
+        uint64_t savedFP = *(const uint64_t*)currentFP;
+        uint64_t retAddr = *(const uint64_t*)(currentFP + 8);
+
+        if (retAddr != 0)
+            ips[(*ipCount)++] = retAddr;
+
+        // Ensure we're moving up the stack (FP should increase)
+        if (savedFP <= currentFP)
+            break;
+
+        currentFP = savedFP;
+        frameCount++;
+    }
+}
+
+// Main Tier 2 capture function. Called from InProcDump_Generate while threads
+// are frozen (Apple) or for the crash thread only (Linux).
+static void CollectManagedDebugPages(struct InProcDumpState* state)
+{
+    if (!s_managedDebugInfo.initialized)
+        return;
+
+    const struct InProcManagedDebugInfo* dbg = &s_managedDebugInfo;
+    s_managedDebugPageCount = 0;
+
+    WriteStderr("InProcDump: Capturing managed debug pages (Tier 2)...\n");
+
+    // Phase 1: Capture ThreadStore + Thread objects
+    CaptureThreadObjects(state, dbg);
+
+    // Phase 2: Capture code heaps + nibble maps
+    CaptureCodeHeaps(state, dbg);
+
+    // Phase 3: For each thread, scan stack for IPs and resolve through RangeSectionMap
+    uint64_t ips[INPROC_MAX_STACK_IPS];
+    int ipCount = 0;
+
+    for (int t = 0; t < state->threadCount; t++)
+    {
+        CollectStackIPs(state, &state->threads[t], ips, &ipCount, INPROC_MAX_STACK_IPS);
+
+        for (int i = 0; i < ipCount; i++)
+        {
+            uint64_t rangeSectionPtr = CaptureRangeSectionForIP(state, dbg, ips[i]);
+            if (rangeSectionPtr != 0)
+            {
+                CaptureMethodChainForIP(state, dbg, rangeSectionPtr, ips[i]);
+            }
+        }
+    }
+
+    // Copy results into state
+    state->managedDebugPageCount = s_managedDebugPageCount;
+    for (int i = 0; i < s_managedDebugPageCount; i++)
+        state->managedDebugPages[i] = s_managedDebugPages[i];
+
+    char countBuf[16];
+    IntToStr(s_managedDebugPageCount, countBuf, sizeof(countBuf));
+    WriteStderr("InProcDump: Captured ");
+    WriteStderr(countBuf);
+    WriteStderr(" managed debug pages\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -858,16 +1481,31 @@ static void CollectCrashThread_Apple(struct InProcDumpState* state, int signal, 
     if ((int)threadCount > INPROC_MAX_THREADS)
         state->truncatedThreads = 1;
 
-    // Resume threads
-    for (mach_msg_type_number_t i = 0; i < threadCount; i++)
+    // Save thread array for deferred resume — threads remain frozen until
+    // after Tier 2 managed debug page capture completes.
+    s_frozenThreads = threads;
+    s_frozenThreadCount = threadCount;
+    s_crashMachThread = crashThread;
+}
+
+// Resume all frozen threads and deallocate the Mach thread array.
+// Called after managed debug page capture is complete.
+static void ResumeAndCleanupThreads_Apple(void)
+{
+    if (s_frozenThreads == NULL)
+        return;
+
+    for (mach_msg_type_number_t i = 0; i < s_frozenThreadCount; i++)
     {
-        if (threads[i] != crashThread)
-            thread_resume(threads[i]);
+        if (s_frozenThreads[i] != s_crashMachThread)
+            thread_resume(s_frozenThreads[i]);
     }
 
-    // Deallocate thread array (vm_deallocate is Mach kernel call, should be safe)
-    vm_deallocate(mach_task_self(), (vm_address_t)threads,
-                  threadCount * sizeof(thread_act_t));
+    vm_deallocate(mach_task_self(), (vm_address_t)s_frozenThreads,
+                  s_frozenThreadCount * sizeof(thread_act_t));
+    s_frozenThreads = NULL;
+    s_frozenThreadCount = 0;
+    s_crashMachThread = MACH_PORT_NULL;
 }
 
 // ---------------------------------------------------------------------------
@@ -999,6 +1637,9 @@ void InProcDump_Generate(int signal, siginfo_t* siginfo, void* context)
     if (s_state.runtimeBaseAddress != 0)
         s_state.runtimeRegionIndex = InProcDump_FindRegion(&s_state, s_state.runtimeBaseAddress);
 
+    // Tier 2: Capture managed debug pages for clrstack/clrthreads
+    CollectManagedDebugPages(&s_state);
+
     // Build output path
     char dumpPath[1024];
     BuildDumpPath(dumpPath, sizeof(dumpPath), s_state.pid);
@@ -1061,11 +1702,18 @@ void InProcDump_Generate(int signal, siginfo_t* siginfo, void* context)
     for (int i = 0; i < s_moduleHeaderCount; i++)
         s_state.moduleHeaders[i] = s_moduleHeaders[i];
 
+    // Tier 2: Capture managed debug pages while threads are still frozen.
+    // This is the critical window — threads suspended by CollectCrashThread_Apple
+    // haven't been resumed yet, so heap data is consistent.
+    CollectManagedDebugPages(&s_state);
+
     // Build output path
     char dumpPath[1024];
     BuildDumpPath(dumpPath, sizeof(dumpPath), s_state.pid);
 
-    // Write the dump
+    // Write the dump while threads are still frozen for memory consistency.
+    // The writer uses vm_read_overwrite() which reads directly from the
+    // frozen process state.
     WriteStderr("Writing core dump to: ");
     WriteStderr(dumpPath);
     WriteStderr("\n");
@@ -1084,6 +1732,9 @@ void InProcDump_Generate(int signal, siginfo_t* siginfo, void* context)
     {
         WriteStderr("Core dump written successfully\n");
     }
+
+    // Resume all frozen threads now that the dump is written.
+    ResumeAndCleanupThreads_Apple();
 
 #endif
 

@@ -23,6 +23,7 @@
 #include "class.h"
 #include "assembly.hpp"
 #include "peassembly.h"
+#include "codeman.h"
 #include <minipal/guid.h>
 
 #ifdef TARGET_APPLE
@@ -31,6 +32,7 @@
 #endif
 
 #include "crashreportwriter.h"
+#include "inprocdump.h"
 
 // Context passed through the stack walk callback.
 struct CrashFrameContext
@@ -359,6 +361,76 @@ static void GenerateCrashReportCallback(
 void CrashReport_RegisterVMCallback()
 {
     CrashReport_SetGenerateCallback(GenerateCrashReportCallback);
+}
+
+// ---------------------------------------------------------------------------
+// Managed debug offset provider for Tier 2 dump capture.
+// Populates InProcManagedDebugInfo with compile-time offsets and global
+// addresses so the crash-time signal handler can walk VM data structures
+// without including VM headers.
+// ---------------------------------------------------------------------------
+
+void CrashReport_InitManagedDebugDump()
+{
+    struct InProcManagedDebugInfo info;
+    memset(&info, 0, sizeof(info));
+
+    // Global root addresses (addresses of pointers, not the pointed-to objects)
+    info.threadStoreAddr = (uint64_t)&ThreadStore::s_pThreadStore;
+    info.eeJitManagerAddr = (uint64_t)cdac_data<ExecutionManager>::EEJitManagerAddress;
+    info.rangeSectionMapAddr = (uint64_t)cdac_data<ExecutionManager>::CodeRangeMapAddress;
+
+    // ThreadStore field offsets
+    info.threadStore_FirstThreadLink = (uint32_t)cdac_data<ThreadStore>::FirstThreadLink;
+    info.threadStore_ThreadCount = (uint32_t)cdac_data<ThreadStore>::ThreadCount;
+
+    // Thread field offsets
+    info.thread_Link = (uint32_t)cdac_data<Thread>::Link;
+    info.thread_OSId = (uint32_t)cdac_data<Thread>::OSId;
+    info.thread_State = (uint32_t)cdac_data<Thread>::State;
+    info.thread_RuntimeThreadLocals = (uint32_t)cdac_data<Thread>::RuntimeThreadLocals;
+
+    // EEJitManager → HeapList chain offsets
+    info.eeJitManager_AllCodeHeaps = (uint32_t)cdac_data<EEJitManager>::AllCodeHeaps;
+    info.heapList_Next = (uint32_t)offsetof(HeapList, hpNext);
+    info.heapList_StartAddress = (uint32_t)offsetof(HeapList, startAddress);
+    info.heapList_EndAddress = (uint32_t)offsetof(HeapList, endAddress);
+    info.heapList_MapBase = (uint32_t)offsetof(HeapList, mapBase);
+    info.heapList_HeaderMap = (uint32_t)offsetof(HeapList, pHdrMap);
+
+    // RangeSectionMap offsets
+    info.rangeSectionMap_TopLevelData = (uint32_t)cdac_data<RangeSectionMap>::TopLevelData;
+
+    // RangeSectionFragment offsets
+    info.fragment_RangeBegin = (uint32_t)cdac_data<RangeSectionMap>::RangeSectionFragment::RangeBegin;
+    info.fragment_RangeEndOpen = (uint32_t)cdac_data<RangeSectionMap>::RangeSectionFragment::RangeEndOpen;
+    info.fragment_RangeSection = (uint32_t)cdac_data<RangeSectionMap>::RangeSectionFragment::RangeSection;
+    info.fragment_Next = (uint32_t)cdac_data<RangeSectionMap>::RangeSectionFragment::Next;
+
+    // RangeSection offsets
+    info.rangeSection_RangeBegin = (uint32_t)cdac_data<RangeSection>::RangeBegin;
+    info.rangeSection_RangeEndOpen = (uint32_t)cdac_data<RangeSection>::RangeEndOpen;
+    info.rangeSection_Flags = (uint32_t)cdac_data<RangeSection>::Flags;
+    info.rangeSection_HeapList = (uint32_t)cdac_data<RangeSection>::HeapList;
+    info.rangeSection_R2RModule = (uint32_t)cdac_data<RangeSection>::R2RModule;
+
+    // RealCodeHeader: MethodDesc field offset
+    info.realCodeHeader_MethodDesc = (uint32_t)offsetof(RealCodeHeader, phdrMDesc);
+
+    // MethodDesc → MethodDescChunk computation
+    info.methodDesc_ChunkIndex = (uint32_t)cdac_data<MethodDesc>::ChunkIndex;
+    info.methodDesc_Alignment = (uint32_t)MethodDesc::ALIGNMENT;
+    info.methodDescChunk_Size = (uint32_t)sizeof(MethodDescChunk);
+    info.methodDescChunk_MethodTable = (uint32_t)cdac_data<MethodDescChunk>::MethodTable;
+
+    // MethodTable → Module
+    info.methodTable_Module = (uint32_t)cdac_data<MethodTable>::Module;
+
+    // Module → PE base
+    info.module_Base = (uint32_t)cdac_data<Module>::Base;
+
+    info.initialized = 1;
+    InProcDump_InitManagedDebug(&info);
 }
 
 #endif // TARGET_LINUX || TARGET_ANDROID || TARGET_APPLE

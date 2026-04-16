@@ -707,6 +707,8 @@ void EEStartupHelper()
 #if defined(TARGET_LINUX) || defined(TARGET_ANDROID) || defined(TARGET_APPLE)
         // Register the VM crash report callback for the in-proc crash reporter
         CrashReport_RegisterVMCallback();
+        // Provide managed debug offsets for Tier 2 dump capture (clrstack support)
+        CrashReport_InitManagedDebugDump();
 #endif // TARGET_LINUX || TARGET_ANDROID || TARGET_APPLE
 
 #ifdef STRESS_LOG

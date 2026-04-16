@@ -118,6 +118,9 @@ static int CountIncludedRegions(const struct InProcDumpState* state, int dumpTyp
     // Include module header pages (for clrmd Mach-O header validation)
     count += state->moduleHeaderCount;
 
+    // Include managed debug pages (Tier 2: clrstack/clrthreads support)
+    count += state->managedDebugPageCount;
+
     return count;
 }
 
@@ -316,6 +319,24 @@ int InProcDumpMachO_Write(struct InProcDumpState* state, const char* path)
                 if (WriteData(fd, &seg, sizeof(seg)) != 0) goto done;
                 curFileOff += state->moduleHeaders[m].size;
             }
+
+            // Managed debug pages (Tier 2: heap-allocated runtime objects for clrstack)
+            for (int m = 0; m < state->managedDebugPageCount; m++)
+            {
+                struct segment_command_64 seg;
+                memset(&seg, 0, sizeof(seg));
+                seg.cmd = LC_SEGMENT_64;
+                seg.cmdsize = sizeof(struct segment_command_64);
+                seg.vmaddr = state->managedDebugPages[m].addr;
+                seg.vmsize = state->managedDebugPages[m].size;
+                seg.fileoff = curFileOff;
+                seg.filesize = state->managedDebugPages[m].size;
+                seg.maxprot = VM_PROT_READ | VM_PROT_WRITE;
+                seg.initprot = VM_PROT_READ | VM_PROT_WRITE;
+
+                if (WriteData(fd, &seg, sizeof(seg)) != 0) goto done;
+                curFileOff += state->managedDebugPages[m].size;
+            }
         }
 
         // SpecialDiagInfo synthetic segment (for SOS/dotnet-dump runtime discovery)
@@ -428,6 +449,12 @@ int InProcDumpMachO_Write(struct InProcDumpState* state, const char* path)
             for (int m = 0; m < state->moduleHeaderCount; m++)
             {
                 if (writeMemory(state->moduleHeaders[m].addr, state->moduleHeaders[m].size) != 0) goto done;
+            }
+
+            // Write managed debug page data
+            for (int m = 0; m < state->managedDebugPageCount; m++)
+            {
+                if (writeMemory(state->managedDebugPages[m].addr, state->managedDebugPages[m].size) != 0) goto done;
             }
         }
 

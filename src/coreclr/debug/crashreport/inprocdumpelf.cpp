@@ -175,6 +175,9 @@ static int CountIncludedRegions(const struct InProcDumpState* state, int dumpTyp
     if (state->runtimeRegionIndex >= 0)
         count++;
 
+    // Include managed debug pages (Tier 2: clrstack/clrthreads support)
+    count += state->managedDebugPageCount;
+
     return count;
 }
 
@@ -344,6 +347,18 @@ int InProcDumpElf_Write(struct InProcDumpState* state, const char* path)
                 phdr.p_offset = curDataOffset;
                 if (WriteData(fd, &phdr, sizeof(phdr)) != 0) goto done;
                 curDataOffset += regionSize;
+            }
+
+            // Managed debug pages (Tier 2: clrstack/clrthreads support)
+            for (int m = 0; m < state->managedDebugPageCount; m++)
+            {
+                phdr.p_flags = PF_R | PF_W;
+                phdr.p_vaddr = state->managedDebugPages[m].addr;
+                phdr.p_memsz = state->managedDebugPages[m].size;
+                phdr.p_filesz = state->managedDebugPages[m].size;
+                phdr.p_offset = curDataOffset;
+                if (WriteData(fd, &phdr, sizeof(phdr)) != 0) goto done;
+                curDataOffset += state->managedDebugPages[m].size;
             }
         }
 
@@ -585,6 +600,12 @@ int InProcDumpElf_Write(struct InProcDumpState* state, const char* path)
                 const struct InProcMemoryRegion* r = &state->regions[state->runtimeRegionIndex];
                 size_t regionSize = r->end - r->start;
                 if (writeMemory(r->start, regionSize) != 0) goto done;
+            }
+
+            // Write managed debug page data
+            for (int m = 0; m < state->managedDebugPageCount; m++)
+            {
+                if (writeMemory(state->managedDebugPages[m].addr, state->managedDebugPages[m].size) != 0) goto done;
             }
         }
         if (hasDiagInfo)
