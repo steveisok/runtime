@@ -170,6 +170,11 @@ static int CountIncludedRegions(const struct InProcDumpState* state, int dumpTyp
     int count = 0;
     if (state->stackRegionIndex >= 0)
         count = 1;
+
+    // Include the runtime module region (for SOS module base validation)
+    if (state->runtimeRegionIndex >= 0)
+        count++;
+
     return count;
 }
 
@@ -212,7 +217,8 @@ int InProcDumpElf_Write(struct InProcDumpState* state, const char* path)
     int result = -1;
 
     // Count PT_LOAD segments
-    int loadCount = CountIncludedRegions(state, state->dumpType);
+    int hasDiagInfo = (state->runtimeBaseAddress != 0) ? 1 : 0;
+    int loadCount = CountIncludedRegions(state, state->dumpType) + hasDiagInfo;
     uint64_t phnum = 1 + (uint64_t)loadCount;  // PT_NOTE + PT_LOADs
     int needShdr = (phnum >= PH_HDR_CANARY) ? 1 : 0;
 
@@ -323,7 +329,33 @@ int InProcDumpElf_Write(struct InProcDumpState* state, const char* path)
                 phdr.p_filesz = dumpSize;
                 phdr.p_offset = curDataOffset;
                 if (WriteData(fd, &phdr, sizeof(phdr)) != 0) goto done;
+                curDataOffset += dumpSize;
             }
+
+            // Runtime module region (for SOS module base validation)
+            if (state->runtimeRegionIndex >= 0)
+            {
+                const struct InProcMemoryRegion* r = &state->regions[state->runtimeRegionIndex];
+                size_t regionSize = r->end - r->start;
+                phdr.p_flags = r->flags;
+                phdr.p_vaddr = r->start;
+                phdr.p_memsz = regionSize;
+                phdr.p_filesz = regionSize;
+                phdr.p_offset = curDataOffset;
+                if (WriteData(fd, &phdr, sizeof(phdr)) != 0) goto done;
+                curDataOffset += regionSize;
+            }
+        }
+
+        // SpecialDiagInfo synthetic segment (for SOS/dotnet-dump runtime discovery)
+        if (hasDiagInfo)
+        {
+            phdr.p_flags = PF_R;
+            phdr.p_vaddr = SPECIAL_DIAGINFO_ADDRESS;
+            phdr.p_memsz = SPECIAL_DIAGINFO_SIZE;
+            phdr.p_filesz = SPECIAL_DIAGINFO_SIZE;
+            phdr.p_offset = curDataOffset;
+            if (WriteData(fd, &phdr, sizeof(phdr)) != 0) goto done;
         }
     }
 
@@ -546,6 +578,26 @@ int InProcDumpElf_Write(struct InProcDumpState* state, const char* path)
                 InProcDump_ClipStackRegion(r, GetCrashThreadSP(state), &dumpStart, &dumpSize);
                 if (writeMemory(dumpStart, dumpSize) != 0) goto done;
             }
+
+            // Write runtime module region data
+            if (state->runtimeRegionIndex >= 0)
+            {
+                const struct InProcMemoryRegion* r = &state->regions[state->runtimeRegionIndex];
+                size_t regionSize = r->end - r->start;
+                if (writeMemory(r->start, regionSize) != 0) goto done;
+            }
+        }
+        if (hasDiagInfo)
+        {
+            struct InProcSpecialDiagInfoHeader diagHeader;
+            memset(&diagHeader, 0, sizeof(diagHeader));
+            memcpy(diagHeader.Signature, SPECIAL_DIAGINFO_SIGNATURE, sizeof(SPECIAL_DIAGINFO_SIGNATURE));
+            diagHeader.Version = SPECIAL_DIAGINFO_VERSION;
+            diagHeader.ExceptionRecordAddress = 0;
+            diagHeader.RuntimeBaseAddress = state->runtimeBaseAddress;
+
+            if (WriteData(fd, &diagHeader, sizeof(diagHeader)) != 0) goto done;
+            if (WriteZeros(fd, SPECIAL_DIAGINFO_SIZE - sizeof(diagHeader)) != 0) goto done;
         }
     }
 

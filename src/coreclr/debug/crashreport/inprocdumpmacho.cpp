@@ -107,6 +107,17 @@ static int CountIncludedRegions(const struct InProcDumpState* state, int dumpTyp
         if (sp != 0 && InProcDump_FindRegion(state, sp) >= 0)
             count++;
     }
+
+    // Include the runtime module region (for SOS module base validation)
+    if (state->runtimeRegionIndex >= 0)
+        count++;
+
+    // Include dyld memory ranges (for clrmd module enumeration)
+    count += state->dyldRangeCount;
+
+    // Include module header pages (for clrmd Mach-O header validation)
+    count += state->moduleHeaderCount;
+
     return count;
 }
 
@@ -121,7 +132,8 @@ int InProcDumpMachO_Write(struct InProcDumpState* state, const char* path)
 
     int result = -1;
 
-    int segCount = CountIncludedRegions(state, state->dumpType);
+    int hasDiagInfo = (state->runtimeBaseAddress != 0) ? 1 : 0;
+    int segCount = CountIncludedRegions(state, state->dumpType) + hasDiagInfo;
     uint32_t ncmds = (uint32_t)state->threadCount + (uint32_t)segCount;
 
     // Calculate load command sizes
@@ -247,6 +259,81 @@ int InProcDumpMachO_Write(struct InProcDumpState* state, const char* path)
                 if (WriteData(fd, &seg, sizeof(seg)) != 0) goto done;
                 curFileOff += dumpSize;
             }
+
+            // Runtime module region (for SOS module base validation)
+            if (state->runtimeRegionIndex >= 0)
+            {
+                const struct InProcMemoryRegion* r = &state->regions[state->runtimeRegionIndex];
+                size_t regionSize = r->end - r->start;
+
+                struct segment_command_64 seg;
+                memset(&seg, 0, sizeof(seg));
+                seg.cmd = LC_SEGMENT_64;
+                seg.cmdsize = sizeof(struct segment_command_64);
+                seg.vmaddr = r->start;
+                seg.vmsize = regionSize;
+                seg.fileoff = curFileOff;
+                seg.filesize = regionSize;
+                seg.maxprot = (vm_prot_t)r->flags;
+                seg.initprot = (vm_prot_t)r->flags;
+
+                if (WriteData(fd, &seg, sizeof(seg)) != 0) goto done;
+                curFileOff += regionSize;
+            }
+
+            // Dyld memory ranges (specific address ranges for clrmd module enumeration)
+            for (int d = 0; d < state->dyldRangeCount; d++)
+            {
+                struct segment_command_64 seg;
+                memset(&seg, 0, sizeof(seg));
+                seg.cmd = LC_SEGMENT_64;
+                seg.cmdsize = sizeof(struct segment_command_64);
+                seg.vmaddr = state->dyldRanges[d].addr;
+                seg.vmsize = state->dyldRanges[d].size;
+                seg.fileoff = curFileOff;
+                seg.filesize = state->dyldRanges[d].size;
+                seg.maxprot = VM_PROT_READ;
+                seg.initprot = VM_PROT_READ;
+
+                if (WriteData(fd, &seg, sizeof(seg)) != 0) goto done;
+                curFileOff += state->dyldRanges[d].size;
+            }
+
+            // Module header pages (one 4 KB page per loaded module for clrmd)
+            for (int m = 0; m < state->moduleHeaderCount; m++)
+            {
+                struct segment_command_64 seg;
+                memset(&seg, 0, sizeof(seg));
+                seg.cmd = LC_SEGMENT_64;
+                seg.cmdsize = sizeof(struct segment_command_64);
+                seg.vmaddr = state->moduleHeaders[m].addr;
+                seg.vmsize = state->moduleHeaders[m].size;
+                seg.fileoff = curFileOff;
+                seg.filesize = state->moduleHeaders[m].size;
+                seg.maxprot = VM_PROT_READ;
+                seg.initprot = VM_PROT_READ;
+
+                if (WriteData(fd, &seg, sizeof(seg)) != 0) goto done;
+                curFileOff += state->moduleHeaders[m].size;
+            }
+        }
+
+        // SpecialDiagInfo synthetic segment (for SOS/dotnet-dump runtime discovery)
+        if (hasDiagInfo)
+        {
+            struct segment_command_64 seg;
+            memset(&seg, 0, sizeof(seg));
+            seg.cmd = LC_SEGMENT_64;
+            seg.cmdsize = sizeof(struct segment_command_64);
+            seg.vmaddr = SPECIAL_DIAGINFO_ADDRESS;
+            seg.vmsize = SPECIAL_DIAGINFO_SIZE;
+            seg.fileoff = curFileOff;
+            seg.filesize = SPECIAL_DIAGINFO_SIZE;
+            seg.maxprot = VM_PROT_READ;
+            seg.initprot = VM_PROT_READ;
+
+            if (WriteData(fd, &seg, sizeof(seg)) != 0) goto done;
+            curFileOff += SPECIAL_DIAGINFO_SIZE;
         }
     }
 
@@ -322,6 +409,40 @@ int InProcDumpMachO_Write(struct InProcDumpState* state, const char* path)
                 InProcDump_ClipStackRegion(r, sp, &dumpStart, &dumpSize);
                 if (writeMemory(dumpStart, dumpSize) != 0) goto done;
             }
+
+            // Write runtime module region data
+            if (state->runtimeRegionIndex >= 0)
+            {
+                const struct InProcMemoryRegion* r = &state->regions[state->runtimeRegionIndex];
+                size_t regionSize = r->end - r->start;
+                if (writeMemory(r->start, regionSize) != 0) goto done;
+            }
+
+            // Write dyld memory range data
+            for (int d = 0; d < state->dyldRangeCount; d++)
+            {
+                if (writeMemory(state->dyldRanges[d].addr, state->dyldRanges[d].size) != 0) goto done;
+            }
+
+            // Write module header page data
+            for (int m = 0; m < state->moduleHeaderCount; m++)
+            {
+                if (writeMemory(state->moduleHeaders[m].addr, state->moduleHeaders[m].size) != 0) goto done;
+            }
+        }
+
+        // Write SpecialDiagInfo data
+        if (hasDiagInfo)
+        {
+            struct InProcSpecialDiagInfoHeader diagHeader;
+            memset(&diagHeader, 0, sizeof(diagHeader));
+            memcpy(diagHeader.Signature, SPECIAL_DIAGINFO_SIGNATURE, sizeof(SPECIAL_DIAGINFO_SIGNATURE));
+            diagHeader.Version = SPECIAL_DIAGINFO_VERSION;
+            diagHeader.ExceptionRecordAddress = 0;
+            diagHeader.RuntimeBaseAddress = state->runtimeBaseAddress;
+
+            if (WriteData(fd, &diagHeader, sizeof(diagHeader)) != 0) goto done;
+            if (WriteZeros(fd, SPECIAL_DIAGINFO_SIZE - sizeof(diagHeader)) != 0) goto done;
         }
     }
 

@@ -108,10 +108,53 @@ extern "C" {
 #define INPROC_IO_BUFFER_SIZE       (16 * 1024)
 // Maximum stack region to include in mini dump
 #define INPROC_MAX_STACK_SIZE       (8 * 1024 * 1024)
+// Maximum dyld memory ranges to include in mini dump for SOS module enumeration.
+// We include specific address ranges (dyld __TEXT, symtab, strtab, image info)
+// rather than full memory regions because dyld is in the shared cache and its
+// __LINKEDIT region is ~600 MB.
+#define INPROC_MAX_DYLD_RANGES      8
+
+// Maximum number of module memory ranges to include in mini dump.
+// Includes header pages (clrmd throws if unreadable) and path string pages
+// (SOS identifies the runtime by module name). With ~500 modules × 2 ranges each,
+// deduplication typically reduces the count well below this limit.
+#define INPROC_MAX_MODULE_HEADERS   1536
 
 // ---------------------------------------------------------------------------
-// Dump type
+// SpecialDiagInfo — synthetic dump segment for SOS/dotnet-dump discovery
 // ---------------------------------------------------------------------------
+// Must match: https://github.com/dotnet/diagnostics/blob/main/src/SOS/inc/specialdiaginfo.h
+// and src/coreclr/debug/createdump/specialdiaginfo.h in this repo.
+
+#define SPECIAL_DIAGINFO_SIGNATURE  "DIAGINFOHEADER"
+#define SPECIAL_DIAGINFO_VERSION    2
+#define SPECIAL_DIAGINFO_SIZE       0x1000
+
+#ifdef __APPLE__
+#define SPECIAL_DIAGINFO_ADDRESS    0x7fffffff10000000ULL
+#elif defined(__LP64__)
+#define SPECIAL_DIAGINFO_ADDRESS    0x00007ffffff10000ULL
+#else
+#define SPECIAL_DIAGINFO_ADDRESS    0x7fff1000ULL
+#endif
+
+struct InProcSpecialDiagInfoHeader
+{
+    char     Signature[16];
+    int32_t  Version;
+    uint64_t ExceptionRecordAddress;
+    uint64_t RuntimeBaseAddress;
+};
+
+// ---------------------------------------------------------------------------
+// Dyld memory range — a specific address range to include in mini dumps
+// ---------------------------------------------------------------------------
+
+struct InProcDyldRange
+{
+    uint64_t addr;
+    uint64_t size;
+};
 
 enum InProcDumpType
 {
@@ -201,6 +244,21 @@ struct InProcDumpState
     // Stack region for the crashing thread (found from regions[])
     int stackRegionIndex;    // Index into regions[], or -1
 
+    // Region containing the runtime module (for mini dumps so SOS can validate the base)
+    int runtimeRegionIndex;  // Index into regions[], or -1
+
+    // Dyld memory ranges for mini dumps (SOS/clrmd module enumeration).
+    // These are specific address ranges (not region indices) because dyld's
+    // segments live in the shared cache where full regions are hundreds of MB.
+    struct InProcDyldRange dyldRanges[INPROC_MAX_DYLD_RANGES];
+    int dyldRangeCount;
+
+    // Module header pages for mini dumps.
+    // clrmd throws when a module's Mach-O header can't be read, aborting enumeration.
+    // We include one 4 KB page per loaded module so all headers are available.
+    struct InProcDyldRange moduleHeaders[INPROC_MAX_MODULE_HEADERS];
+    int moduleHeaderCount;
+
 #if defined(__linux__)
     // Auxiliary vector
     uint8_t auxv[4096];
@@ -212,6 +270,9 @@ struct InProcDumpState
 
     // Dump type
     enum InProcDumpType dumpType;
+
+    // Runtime base address for SpecialDiagInfo (SOS discovery)
+    uint64_t runtimeBaseAddress;
 
     // Truncation flags
     int truncatedThreads;    // 1 if we hit MAX_THREADS

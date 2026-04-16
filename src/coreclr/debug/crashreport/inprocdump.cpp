@@ -24,6 +24,8 @@
 #include <errno.h>
 #include <signal.h>
 #include <sys/stat.h>
+#include <stddef.h>
+#include <dlfcn.h>
 #include <minipal/log.h>
 
 #if defined(__linux__)
@@ -35,7 +37,17 @@
 #include <mach/mach.h>
 #include <mach/thread_act.h>
 #include <mach/vm_map.h>
+#include <mach/task_info.h>
+#include <mach-o/loader.h>
+#include <mach-o/nlist.h>
+#include <mach-o/dyld_images.h>
 #endif
+
+// Verify SpecialDiagInfo ABI compatibility with createdump/diagnostics repo.
+static_assert(sizeof(struct InProcSpecialDiagInfoHeader) == 40,
+    "InProcSpecialDiagInfoHeader size must match SpecialDiagInfoHeader");
+static_assert(offsetof(struct InProcSpecialDiagInfoHeader, RuntimeBaseAddress) == 32,
+    "RuntimeBaseAddress offset must match SpecialDiagInfoHeader");
 
 // ---------------------------------------------------------------------------
 // Static state — initialized at startup, used in signal handler
@@ -44,9 +56,34 @@
 static enum InProcDumpType s_dumpType = InProcDumpType_None;
 static char s_dumpPath[1024];
 static int s_initialized = 0;
+static uint64_t s_runtimeBaseAddress = 0;
 
 // CAS guard: ensures only one thread generates the dump.
 static volatile int s_dumpInProgress = 0;
+
+#if defined(__APPLE__)
+// Dyld memory ranges captured at init time for SOS/clrmd module enumeration.
+// clrmd discovers modules by finding dyld in the dump (MH_DYLINKER header in
+// __TEXT), parsing its symbol table (symtab/strtab from __LINKEDIT) to locate
+// dyld_all_image_infos, then reading the image info array.
+//
+// On modern Apple, dyld lives in the shared cache. Its __LINKEDIT is ~600 MB
+// (shared with all cached dylibs). We include only the specific pages needed:
+//   1. dyld __TEXT segment (~680 KB) — contains MH_DYLINKER header + load cmds
+//   2. symtab from __LINKEDIT — nlist_64 array for symbol lookup
+//   3. strtab from __LINKEDIT — symbol name strings
+//   4. dyld_all_image_infos struct — module list metadata
+//   5. image info array — all loaded module base addresses and paths
+static struct InProcDyldRange s_dyldRanges[INPROC_MAX_DYLD_RANGES];
+static int s_dyldRangeCount = 0;
+
+// Module header pages captured at init time.
+// clrmd's MachOModule constructor throws (not skips) when a module's Mach-O header
+// can't be read, aborting the entire module enumeration. We capture the first page
+// of every loaded module so all headers are present in the dump.
+static struct InProcDyldRange s_moduleHeaders[INPROC_MAX_MODULE_HEADERS];
+static int s_moduleHeaderCount = 0;
+#endif
 
 #if defined(__linux__)
 // Pre-opened fd for /proc/self/mem — stored separately so memset of s_state
@@ -155,6 +192,274 @@ void InProcDump_Initialize(void)
     // Open /proc/self/mem now — may not be openable in some signal states.
     // Store in separate static so memset of s_state doesn't lose it.
     s_fdMem = open("/proc/self/mem", O_RDONLY);
+#endif
+
+    // Capture the runtime base address for SpecialDiagInfo.
+    // dladdr is safe at init time (not in signal handler). Use a symbol
+    // known to reside in libcoreclr to resolve its load address.
+    Dl_info dlInfo;
+    if (dladdr((void*)&InProcDump_Initialize, &dlInfo) != 0 && dlInfo.dli_fbase != NULL)
+    {
+        s_runtimeBaseAddress = (uint64_t)(uintptr_t)dlInfo.dli_fbase;
+    }
+
+#if defined(__APPLE__)
+    // Capture dyld memory ranges for SOS/clrmd module enumeration.
+    // task_info and memory reads are safe at init time (not async-signal-safe).
+    //
+    // clrmd finds modules by: (1) locating dyld via its MH_DYLINKER header,
+    // (2) parsing dyld's LC_SYMTAB to find dyld_all_image_infos in the symbol table,
+    // (3) reading the image info array. We compute the exact virtual addresses
+    // of each piece at init time so dump-time just writes byte ranges.
+    {
+        struct task_dyld_info dyldTaskInfo;
+        mach_msg_type_number_t diCount = TASK_DYLD_INFO_COUNT;
+        kern_return_t kr = task_info(mach_task_self(), TASK_DYLD_INFO,
+                                     (task_info_t)&dyldTaskInfo, &diCount);
+        if (kr == KERN_SUCCESS)
+        {
+            uint64_t allImageInfoAddr = dyldTaskInfo.all_image_info_addr;
+
+            const struct dyld_all_image_infos* infos =
+                (const struct dyld_all_image_infos*)allImageInfoAddr;
+            uint64_t dyldBase = (uint64_t)infos->dyldImageLoadAddress;
+
+            uint64_t imageInfoArrayAddr = (uint64_t)infos->infoArray;
+            uint64_t imageInfoArraySize = (uint64_t)infos->infoArrayCount *
+                                           sizeof(struct dyld_image_info);
+
+            // Parse dyld's Mach-O header to find __TEXT, __LINKEDIT, and LC_SYMTAB.
+            const struct mach_header_64* dyldHeader =
+                (const struct mach_header_64*)dyldBase;
+            if (dyldHeader->magic == MH_MAGIC_64)
+            {
+                uint64_t textVmaddr = 0, textVmsize = 0;
+                uint64_t linkeditVmaddr = 0, linkeditFileoff = 0;
+                uint32_t symoff = 0, nsyms = 0, stroff = 0, strsize = 0;
+                int foundText = 0, foundLinkedit = 0, foundSymtab = 0;
+
+                const uint8_t* cmd = (const uint8_t*)(dyldHeader + 1);
+                for (uint32_t i = 0; i < dyldHeader->ncmds; i++)
+                {
+                    const struct load_command* lc = (const struct load_command*)cmd;
+                    if (lc->cmd == LC_SEGMENT_64)
+                    {
+                        const struct segment_command_64* seg =
+                            (const struct segment_command_64*)cmd;
+                        if (strcmp(seg->segname, SEG_TEXT) == 0)
+                        {
+                            textVmaddr = seg->vmaddr;
+                            textVmsize = seg->vmsize;
+                            foundText = 1;
+                        }
+                        else if (strcmp(seg->segname, SEG_LINKEDIT) == 0)
+                        {
+                            linkeditVmaddr = seg->vmaddr;
+                            linkeditFileoff = seg->fileoff;
+                            foundLinkedit = 1;
+                        }
+                    }
+                    else if (lc->cmd == LC_SYMTAB)
+                    {
+                        const struct symtab_command* sym =
+                            (const struct symtab_command*)cmd;
+                        symoff = sym->symoff;
+                        nsyms = sym->nsyms;
+                        stroff = sym->stroff;
+                        strsize = sym->strsize;
+                        foundSymtab = 1;
+                    }
+                    cmd += lc->cmdsize;
+                }
+
+                if (foundText && foundLinkedit && foundSymtab)
+                {
+                    // loadBias accounts for ASLR / shared cache slide.
+                    // For standard Mach-O layout, __TEXT starts at the header.
+                    uint64_t loadBias = dyldBase - textVmaddr;
+                    uint64_t linkeditActual = linkeditVmaddr + loadBias;
+
+                    // Range 0: dyld __TEXT (MH_DYLINKER header + load commands)
+                    s_dyldRanges[0].addr = dyldBase;
+                    s_dyldRanges[0].size = textVmsize;
+
+                    // Range 1: symbol table (nlist_64 array from __LINKEDIT)
+                    s_dyldRanges[1].addr = linkeditActual + (symoff - linkeditFileoff);
+                    s_dyldRanges[1].size = (uint64_t)nsyms * sizeof(struct nlist_64);
+
+                    // Range 2: string table (symbol names from __LINKEDIT)
+                    s_dyldRanges[2].addr = linkeditActual + (stroff - linkeditFileoff);
+                    s_dyldRanges[2].size = strsize;
+
+                    // Range 3: dyld_all_image_infos struct
+                    s_dyldRanges[3].addr = allImageInfoAddr;
+                    s_dyldRanges[3].size = sizeof(struct dyld_all_image_infos);
+
+                    // Range 4: image info array (all loaded module base addresses)
+                    s_dyldRanges[4].addr = imageInfoArrayAddr;
+                    s_dyldRanges[4].size = imageInfoArraySize;
+
+                    s_dyldRangeCount = 5;
+                }
+            }
+
+            // Capture header + load commands for each loaded module.
+            // clrmd's MachOModule constructor reads the full Mach-O header and all load
+            // commands. If any load command read returns zeros (unmapped memory), the
+            // zero cmd.Size triggers InvalidDataException. We read each module's
+            // sizeofcmds to compute the exact size needed.
+            uint32_t moduleCount = infos->infoArrayCount;
+            const struct dyld_image_info* imageInfos = infos->infoArray;
+            for (uint32_t i = 0; i < moduleCount && s_moduleHeaderCount < INPROC_MAX_MODULE_HEADERS; i++)
+            {
+                uint64_t loadAddr = (uint64_t)imageInfos[i].imageLoadAddress;
+                if (loadAddr == 0)
+                    continue;
+
+                // Read the header to determine how much to include
+                const struct mach_header_64* hdr = (const struct mach_header_64*)loadAddr;
+                if (hdr->magic != MH_MAGIC_64)
+                    continue;
+
+                uint64_t neededSize = sizeof(struct mach_header_64) + hdr->sizeofcmds;
+
+                // Page-align base address
+                uint64_t pageAddr = loadAddr & ~(uint64_t)0xFFF;
+                // Account for sub-page offset of loadAddr within its page
+                uint64_t offsetInPage = loadAddr - pageAddr;
+                uint64_t totalSize = (neededSize + offsetInPage + 0xFFF) & ~(uint64_t)0xFFF;
+
+                // Helper: add a range with deduplication
+                auto addRange = [](uint64_t addr, uint64_t size)
+                {
+                    for (int j = 0; j < s_moduleHeaderCount; j++)
+                    {
+                        if (s_moduleHeaders[j].addr == addr && s_moduleHeaders[j].size >= size)
+                            return;
+                    }
+                    if (s_moduleHeaderCount < INPROC_MAX_MODULE_HEADERS)
+                    {
+                        s_moduleHeaders[s_moduleHeaderCount].addr = addr;
+                        s_moduleHeaders[s_moduleHeaderCount].size = size;
+                        s_moduleHeaderCount++;
+                    }
+                };
+
+                // Add module header + load commands
+                addRange(pageAddr, totalSize);
+
+                // Add module path string page (needed for SOS to identify modules by name)
+                const char* path = imageInfos[i].imageFilePath;
+                if (path != NULL)
+                {
+                    uint64_t pathPageAddr = (uint64_t)path & ~(uint64_t)0xFFF;
+                    addRange(pathPageAddr, 0x1000);
+                }
+            }
+        }
+    }
+
+    // Capture the runtime module's segments for SOS/DAC initialization.
+    // The DAC needs:
+    //   - symtab/strtab (from __LINKEDIT) to resolve exports like g_dacTable
+    //   - __DATA, __DATA_CONST, __AUTH, etc. to read runtime globals the DAC uses
+    // We skip __LINKEDIT itself (only need symtab/strtab ranges) and __TEXT
+    // (already captured in module headers). All other segments are added.
+    if (s_runtimeBaseAddress != 0)
+    {
+        const struct mach_header_64* rtHeader =
+            (const struct mach_header_64*)s_runtimeBaseAddress;
+        if (rtHeader->magic == MH_MAGIC_64)
+        {
+            uint64_t textVmaddr = 0;
+            uint64_t linkeditVmaddr = 0, linkeditFileoff = 0;
+            uint32_t symoff = 0, nsyms = 0, stroff = 0, strsize = 0;
+            int foundText = 0, foundLinkedit = 0, foundSymtab = 0;
+
+            // First pass: find __TEXT, __LINKEDIT, and LC_SYMTAB
+            const uint8_t* cmd = (const uint8_t*)(rtHeader + 1);
+            for (uint32_t i = 0; i < rtHeader->ncmds; i++)
+            {
+                const struct load_command* lc = (const struct load_command*)cmd;
+                if (lc->cmd == LC_SEGMENT_64)
+                {
+                    const struct segment_command_64* seg =
+                        (const struct segment_command_64*)cmd;
+                    if (strcmp(seg->segname, SEG_TEXT) == 0)
+                    {
+                        textVmaddr = seg->vmaddr;
+                        foundText = 1;
+                    }
+                    else if (strcmp(seg->segname, SEG_LINKEDIT) == 0)
+                    {
+                        linkeditVmaddr = seg->vmaddr;
+                        linkeditFileoff = seg->fileoff;
+                        foundLinkedit = 1;
+                    }
+                }
+                else if (lc->cmd == LC_SYMTAB)
+                {
+                    const struct symtab_command* sym =
+                        (const struct symtab_command*)cmd;
+                    symoff = sym->symoff;
+                    nsyms = sym->nsyms;
+                    stroff = sym->stroff;
+                    strsize = sym->strsize;
+                    foundSymtab = 1;
+                }
+                cmd += lc->cmdsize;
+            }
+
+            if (foundText)
+            {
+                uint64_t loadBias = s_runtimeBaseAddress - textVmaddr;
+
+                // Add symtab/strtab from __LINKEDIT
+                if (foundLinkedit && foundSymtab &&
+                    s_dyldRangeCount + 2 <= INPROC_MAX_DYLD_RANGES)
+                {
+                    uint64_t linkeditActual = linkeditVmaddr + loadBias;
+
+                    s_dyldRanges[s_dyldRangeCount].addr =
+                        linkeditActual + (symoff - linkeditFileoff);
+                    s_dyldRanges[s_dyldRangeCount].size =
+                        (uint64_t)nsyms * sizeof(struct nlist_64);
+                    s_dyldRangeCount++;
+
+                    s_dyldRanges[s_dyldRangeCount].addr =
+                        linkeditActual + (stroff - linkeditFileoff);
+                    s_dyldRanges[s_dyldRangeCount].size = strsize;
+                    s_dyldRangeCount++;
+                }
+
+                // Second pass: add all non-TEXT/non-LINKEDIT segments
+                // (DATA, DATA_CONST, AUTH, OBJC, etc.) for DAC initialization
+                cmd = (const uint8_t*)(rtHeader + 1);
+                for (uint32_t i = 0; i < rtHeader->ncmds; i++)
+                {
+                    const struct load_command* lc = (const struct load_command*)cmd;
+                    if (lc->cmd == LC_SEGMENT_64)
+                    {
+                        const struct segment_command_64* seg =
+                            (const struct segment_command_64*)cmd;
+                        if (seg->vmsize > 0 &&
+                            strcmp(seg->segname, SEG_TEXT) != 0 &&
+                            strcmp(seg->segname, SEG_LINKEDIT) != 0)
+                        {
+                            uint64_t segAddr = seg->vmaddr + loadBias;
+                            if (s_moduleHeaderCount < INPROC_MAX_MODULE_HEADERS)
+                            {
+                                s_moduleHeaders[s_moduleHeaderCount].addr = segAddr;
+                                s_moduleHeaders[s_moduleHeaderCount].size = seg->vmsize;
+                                s_moduleHeaderCount++;
+                            }
+                        }
+                    }
+                    cmd += lc->cmdsize;
+                }
+            }
+        }
+    }
 #endif
 }
 
@@ -658,6 +963,8 @@ void InProcDump_Generate(int signal, siginfo_t* siginfo, void* context)
     memset(&s_state, 0, sizeof(s_state));
     s_state.dumpType = s_dumpType;
     s_state.stackRegionIndex = -1;
+    s_state.runtimeRegionIndex = -1;
+    s_state.runtimeBaseAddress = s_runtimeBaseAddress;
 
 #if defined(__linux__)
     // Restore pre-opened fd (memset cleared s_state.fdMem).
@@ -687,6 +994,10 @@ void InProcDump_Generate(int signal, siginfo_t* siginfo, void* context)
 #endif
         s_state.stackRegionIndex = InProcDump_FindRegion(&s_state, sp);
     }
+
+    // Find runtime region for mini dumps (so SOS can validate the module base)
+    if (s_state.runtimeBaseAddress != 0)
+        s_state.runtimeRegionIndex = InProcDump_FindRegion(&s_state, s_state.runtimeBaseAddress);
 
     // Build output path
     char dumpPath[1024];
@@ -735,6 +1046,20 @@ void InProcDump_Generate(int signal, siginfo_t* siginfo, void* context)
 #endif
         s_state.stackRegionIndex = InProcDump_FindRegion(&s_state, sp);
     }
+
+    // Find runtime region for mini dumps (so SOS can validate the module base)
+    if (s_state.runtimeBaseAddress != 0)
+        s_state.runtimeRegionIndex = InProcDump_FindRegion(&s_state, s_state.runtimeBaseAddress);
+
+    // Copy pre-computed dyld memory ranges for mini dumps (SOS/clrmd module enumeration).
+    s_state.dyldRangeCount = s_dyldRangeCount;
+    for (int i = 0; i < s_dyldRangeCount; i++)
+        s_state.dyldRanges[i] = s_dyldRanges[i];
+
+    // Copy module header pages for mini dumps (SOS/clrmd header validation).
+    s_state.moduleHeaderCount = s_moduleHeaderCount;
+    for (int i = 0; i < s_moduleHeaderCount; i++)
+        s_state.moduleHeaders[i] = s_moduleHeaders[i];
 
     // Build output path
     char dumpPath[1024];
