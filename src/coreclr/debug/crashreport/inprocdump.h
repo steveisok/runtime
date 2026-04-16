@@ -156,6 +156,30 @@ struct InProcSpecialDiagInfoHeader
 };
 
 // ---------------------------------------------------------------------------
+// SpecialThreadInfo — synthetic dump segment mapping thread IDs to SPs
+// ---------------------------------------------------------------------------
+// Must match: https://github.com/dotnet/diagnostics/blob/main/src/SOS/inc/specialthreadinfo.h
+// and src/coreclr/debug/createdump/specialthreadinfo.h in this repo.
+// Mach-O LC_THREAD commands have no thread ID field, so clrmd/SOS uses this
+// segment to map dump thread indices to OS thread IDs for register lookups.
+
+#define SPECIAL_THREADINFO_SIGNATURE  "THREADINFO"
+#define SPECIAL_THREADINFO_ADDRESS    0x7fffffff00000000ULL
+
+struct InProcSpecialThreadInfoHeader
+{
+    char     signature[16];
+    uint32_t pid;
+    uint32_t numThreads;
+};
+
+struct InProcSpecialThreadInfoEntry
+{
+    uint32_t tid;
+    uint64_t sp;
+};
+
+// ---------------------------------------------------------------------------
 // Dyld memory range — a specific address range to include in mini dumps
 // ---------------------------------------------------------------------------
 
@@ -242,7 +266,8 @@ struct InProcManagedDebugInfo
 
 struct InProcThreadInfo
 {
-    uint64_t tid;
+    uint64_t tid;           // Mach port (Apple) or TID (Linux)
+    uint64_t pthreadId;     // pthread-level thread ID (Apple only, for SpecialThreadInfo)
     int      isCrashThread;
     int      hasGPRegs;
     int      hasFPRegs;

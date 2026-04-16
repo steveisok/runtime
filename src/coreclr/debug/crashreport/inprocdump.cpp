@@ -1427,6 +1427,18 @@ static void CollectCrashThread_Apple(struct InProcDumpState* state, int signal, 
         memset(info, 0, sizeof(*info));
         info->tid = (uint64_t)threads[i];
 
+        // Get the pthread-level thread ID (matches Thread::m_OSThreadId).
+        // Mach ports and pthread IDs are different; SOS/clrmd needs the pthread ID
+        // to correlate dump threads with managed Thread objects.
+        thread_identifier_info_data_t tident;
+        mach_msg_type_number_t tident_count = THREAD_IDENTIFIER_INFO_COUNT;
+        kern_return_t idResult = thread_info(threads[i], THREAD_IDENTIFIER_INFO,
+                                             (thread_info_t)&tident, &tident_count);
+        if (idResult == KERN_SUCCESS)
+            info->pthreadId = tident.thread_id;
+        else
+            info->pthreadId = (uint64_t)threads[i]; // fallback to Mach port
+
         if (threads[i] == crashThread)
         {
             info->isCrashThread = 1;
