@@ -33,7 +33,6 @@
 
 #if defined(__APPLE__)
 #include <mach/mach.h>
-#include <mach/mach_vm.h>
 #include <mach/thread_act.h>
 #include <mach/vm_map.h>
 #endif
@@ -579,16 +578,17 @@ static void CollectRegions_Apple(struct InProcDumpState* state)
 
     // Follow the proven traversal pattern from createdump/crashinfomac.cpp:
     // start at address 1, keep depth persistent, only advance address for non-submaps.
-    mach_vm_address_t addr = 1;
-    mach_vm_size_t size = 0;
+    // Use vm_* APIs (not mach_vm_*) for iOS/tvOS/MacCatalyst compatibility.
+    vm_address_t addr = 1;
+    vm_size_t size = 0;
     vm_region_submap_info_data_64_t info;
     uint32_t depth = 0;
 
-    while (addr > 0 && addr < MACH_VM_MAX_ADDRESS && state->regionCount < INPROC_MAX_MEMORY_REGIONS)
+    while (addr > 0 && state->regionCount < INPROC_MAX_MEMORY_REGIONS)
     {
         mach_msg_type_number_t count = VM_REGION_SUBMAP_INFO_COUNT_64;
 
-        kern_return_t kr = mach_vm_region_recurse(
+        kern_return_t kr = vm_region_recurse_64(
             mach_task_self(),
             &addr,
             &size,

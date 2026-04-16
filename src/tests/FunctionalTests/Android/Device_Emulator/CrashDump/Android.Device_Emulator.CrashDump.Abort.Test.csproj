@@ -17,6 +17,12 @@
     <AndroidEnv Include="DOTNET_EnableInProcessCrashReport">
       <Value>1</Value>
     </AndroidEnv>
+    <AndroidEnv Include="DOTNET_InProcessDumpType">
+      <Value>full</Value>
+    </AndroidEnv>
+    <AndroidEnv Include="DOTNET_DbgMiniDumpType">
+      <Value>4</Value>
+    </AndroidEnv>
     <AndroidEnv Include="CRASH_SCENARIO">
       <Value>abort</Value>
     </AndroidEnv>

@@ -266,7 +266,7 @@ int InProcDumpMachO_Write(struct InProcDumpState* state, const char* path)
 
         auto writeMemory = [&](uint64_t startAddr, size_t writeSize) -> int
         {
-            mach_vm_address_t addr = startAddr;
+            vm_address_t addr = (vm_address_t)startAddr;
             size_t remaining = writeSize;
 
             while (remaining > 0)
