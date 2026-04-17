@@ -149,6 +149,20 @@ static size_t GetThreadNotesSize(const struct InProcDumpState* state)
 }
 
 // ---------------------------------------------------------------------------
+// Overlap detection — skip pages already covered by the runtime module region
+// to prevent tools from seeing duplicate/overlapping segments.
+// ---------------------------------------------------------------------------
+
+static bool OverlapsRuntimeRegion(const struct InProcDumpState* state, uint64_t addr, uint64_t size)
+{
+    if (state->runtimeRegionIndex < 0)
+        return false;
+
+    const struct InProcMemoryRegion* r = &state->regions[state->runtimeRegionIndex];
+    return addr >= r->start && (addr + size) <= r->end;
+}
+
+// ---------------------------------------------------------------------------
 // Count included memory regions based on dump type
 // ---------------------------------------------------------------------------
 
@@ -175,8 +189,12 @@ static int CountIncludedRegions(const struct InProcDumpState* state, int dumpTyp
     if (state->runtimeRegionIndex >= 0)
         count++;
 
-    // Include managed debug pages (Tier 2: clrstack/clrthreads support)
-    count += state->managedDebugPageCount;
+    // Include managed debug pages, skipping those already in the runtime region
+    for (int m = 0; m < state->managedDebugPageCount; m++)
+    {
+        if (!OverlapsRuntimeRegion(state, state->managedDebugPages[m].addr, state->managedDebugPages[m].size))
+            count++;
+    }
 
     return count;
 }
@@ -349,9 +367,11 @@ int InProcDumpElf_Write(struct InProcDumpState* state, const char* path)
                 curDataOffset += regionSize;
             }
 
-            // Managed debug pages (Tier 2: clrstack/clrthreads support)
+            // Managed debug pages — skip those already in the runtime region
             for (int m = 0; m < state->managedDebugPageCount; m++)
             {
+                if (OverlapsRuntimeRegion(state, state->managedDebugPages[m].addr, state->managedDebugPages[m].size))
+                    continue;
                 phdr.p_flags = PF_R | PF_W;
                 phdr.p_vaddr = state->managedDebugPages[m].addr;
                 phdr.p_memsz = state->managedDebugPages[m].size;
@@ -602,9 +622,11 @@ int InProcDumpElf_Write(struct InProcDumpState* state, const char* path)
                 if (writeMemory(r->start, regionSize) != 0) goto done;
             }
 
-            // Write managed debug page data
+            // Write managed debug page data — skip those in runtime region
             for (int m = 0; m < state->managedDebugPageCount; m++)
             {
+                if (OverlapsRuntimeRegion(state, state->managedDebugPages[m].addr, state->managedDebugPages[m].size))
+                    continue;
                 if (writeMemory(state->managedDebugPages[m].addr, state->managedDebugPages[m].size) != 0) goto done;
             }
         }

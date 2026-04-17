@@ -74,6 +74,22 @@ static int WriteZeros(int fd, size_t len)
 }
 
 // ---------------------------------------------------------------------------
+// Overlap detection — ClrMD uses binary search on sorted segments, so
+// overlapping VM ranges cause it to miss the larger region.  Skip any
+// module header page or managed debug page that falls within a region
+// already being written (the runtime module region or a stack region).
+// ---------------------------------------------------------------------------
+
+static bool OverlapsRuntimeRegion(const struct InProcDumpState* state, uint64_t addr, uint64_t size)
+{
+    if (state->runtimeRegionIndex < 0)
+        return false;
+
+    const struct InProcMemoryRegion* r = &state->regions[state->runtimeRegionIndex];
+    return addr >= r->start && (addr + size) <= r->end;
+}
+
+// ---------------------------------------------------------------------------
 // Count included memory regions
 // ---------------------------------------------------------------------------
 
@@ -115,11 +131,19 @@ static int CountIncludedRegions(const struct InProcDumpState* state, int dumpTyp
     // Include dyld memory ranges (for clrmd module enumeration)
     count += state->dyldRangeCount;
 
-    // Include module header pages (for clrmd Mach-O header validation)
-    count += state->moduleHeaderCount;
+    // Include module header pages, skipping those already in the runtime region
+    for (int m = 0; m < state->moduleHeaderCount; m++)
+    {
+        if (!OverlapsRuntimeRegion(state, state->moduleHeaders[m].addr, state->moduleHeaders[m].size))
+            count++;
+    }
 
-    // Include managed debug pages (Tier 2: clrstack/clrthreads support)
-    count += state->managedDebugPageCount;
+    // Include managed debug pages, skipping those already in the runtime region
+    for (int m = 0; m < state->managedDebugPageCount; m++)
+    {
+        if (!OverlapsRuntimeRegion(state, state->managedDebugPages[m].addr, state->managedDebugPages[m].size))
+            count++;
+    }
 
     return count;
 }
@@ -303,9 +327,12 @@ int InProcDumpMachO_Write(struct InProcDumpState* state, const char* path)
                 curFileOff += state->dyldRanges[d].size;
             }
 
-            // Module header pages (one 4 KB page per loaded module for clrmd)
+            // Module header pages — skip those already in the runtime region
             for (int m = 0; m < state->moduleHeaderCount; m++)
             {
+                if (OverlapsRuntimeRegion(state, state->moduleHeaders[m].addr, state->moduleHeaders[m].size))
+                    continue;
+
                 struct segment_command_64 seg;
                 memset(&seg, 0, sizeof(seg));
                 seg.cmd = LC_SEGMENT_64;
@@ -321,9 +348,12 @@ int InProcDumpMachO_Write(struct InProcDumpState* state, const char* path)
                 curFileOff += state->moduleHeaders[m].size;
             }
 
-            // Managed debug pages (Tier 2: heap-allocated runtime objects for clrstack)
+            // Managed debug pages — skip those already in the runtime region
             for (int m = 0; m < state->managedDebugPageCount; m++)
             {
+                if (OverlapsRuntimeRegion(state, state->managedDebugPages[m].addr, state->managedDebugPages[m].size))
+                    continue;
+
                 struct segment_command_64 seg;
                 memset(&seg, 0, sizeof(seg));
                 seg.cmd = LC_SEGMENT_64;
@@ -471,15 +501,19 @@ int InProcDumpMachO_Write(struct InProcDumpState* state, const char* path)
                 if (writeMemory(state->dyldRanges[d].addr, state->dyldRanges[d].size) != 0) goto done;
             }
 
-            // Write module header page data
+            // Write module header page data — skip those in runtime region
             for (int m = 0; m < state->moduleHeaderCount; m++)
             {
+                if (OverlapsRuntimeRegion(state, state->moduleHeaders[m].addr, state->moduleHeaders[m].size))
+                    continue;
                 if (writeMemory(state->moduleHeaders[m].addr, state->moduleHeaders[m].size) != 0) goto done;
             }
 
-            // Write managed debug page data
+            // Write managed debug page data — skip those in runtime region
             for (int m = 0; m < state->managedDebugPageCount; m++)
             {
+                if (OverlapsRuntimeRegion(state, state->managedDebugPages[m].addr, state->managedDebugPages[m].size))
+                    continue;
                 if (writeMemory(state->managedDebugPages[m].addr, state->managedDebugPages[m].size) != 0) goto done;
             }
         }
