@@ -34,7 +34,9 @@ internal sealed class Module : IData<Module>
         MethodDefToDescMap = address + (ulong)type.Fields[nameof(MethodDefToDescMap)].Offset;
         TypeDefToMethodTableMap = address + (ulong)type.Fields[nameof(TypeDefToMethodTableMap)].Offset;
         TypeRefToMethodTableMap = address + (ulong)type.Fields[nameof(TypeRefToMethodTableMap)].Offset;
-        MethodDefToILCodeVersioningStateMap = address + (ulong)type.Fields[nameof(MethodDefToILCodeVersioningStateMap)].Offset;
+        MethodDefToILCodeVersioningStateMap = type.Fields.ContainsKey(nameof(MethodDefToILCodeVersioningStateMap))
+            ? address + (ulong)type.Fields[nameof(MethodDefToILCodeVersioningStateMap)].Offset
+            : TargetPointer.Null;
         DynamicILBlobTable = target.ReadPointerField(address, type, nameof(DynamicILBlobTable));
     }
 

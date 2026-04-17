@@ -601,19 +601,13 @@ internal partial class StackWalk_1 : IStackWalk
                 break;
             case StackWalkState.SW_FRAME:
                 handle.FrameIter.UpdateContextFromFrame(handle.Context);
-                if (!handle.FrameIter.IsInlineCallFrameWithActiveCall())
-                {
-                    handle.FrameIter.Next();
-                }
-                else if (!IsManaged(handle.Context.InstructionPointer, out _))
-                {
-                    // The InlinedCallFrame has an active call but the caller's IP is not
-                    // in a known managed code range (e.g. partial dump without JIT code
-                    // heaps). Advance past the frame to prevent an infinite loop — without
-                    // managed code range data the walker would repeatedly re-process the
-                    // same InlinedCallFrame.
-                    handle.FrameIter.Next();
-                }
+                // Always advance past the current frame. For InlinedCallFrames with
+                // active calls, UpdateContextFromFrame has already set the context IP
+                // to CallerReturnAddress. Without advancing, the managed frame at
+                // CallerRA would unwind back to the P/Invoke stub (not managed), and
+                // UpdateState would set SW_FRAME with the same InlinedCallFrame,
+                // creating an infinite loop.
+                handle.FrameIter.Next();
                 break;
             case StackWalkState.SW_ERROR:
             case StackWalkState.SW_COMPLETE:

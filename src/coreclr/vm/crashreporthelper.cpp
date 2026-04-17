@@ -431,6 +431,30 @@ void CrashReport_InitManagedDebugDump()
     // Module → PE base
     info.module_Base = (uint32_t)cdac_data<Module>::Base;
 
+    // Module → ReadyToRunInfo
+    info.module_ReadyToRunInfo = (uint32_t)cdac_data<Module>::ReadyToRunInfo;
+
+    // ReadyToRunInfo fields
+    info.readyToRunInfo_NumRuntimeFunctions = (uint32_t)cdac_data<ReadyToRunInfo>::NumRuntimeFunctions;
+    info.readyToRunInfo_RuntimeFunctions = (uint32_t)cdac_data<ReadyToRunInfo>::RuntimeFunctions;
+    info.readyToRunInfo_CompositeInfo = (uint32_t)cdac_data<ReadyToRunInfo>::CompositeInfo;
+    info.readyToRunInfo_EntryPointToMethodDescMap = (uint32_t)cdac_data<ReadyToRunInfo>::EntryPointToMethodDescMap;
+    info.readyToRunInfo_NumHotColdMap = (uint32_t)cdac_data<ReadyToRunInfo>::NumHotColdMap;
+    info.readyToRunInfo_HotColdMap = (uint32_t)cdac_data<ReadyToRunInfo>::HotColdMap;
+    info.readyToRunInfo_DelayLoadMethodCallThunks = (uint32_t)cdac_data<ReadyToRunInfo>::DelayLoadMethodCallThunks;
+    info.runtimeFunction_Size = (uint32_t)sizeof(RUNTIME_FUNCTION);
+
+    // HashMap and Bucket layout (for EntryPointToMethodDescMap resolution)
+    info.hashMap_Buckets = (uint32_t)cdac_data<HashMap>::Buckets;
+    info.bucket_Size = (uint32_t)sizeof(Bucket);
+
+    // Managed frame chain walking (InlinedCallFrame CallerReturnAddress)
+    info.thread_Frame = (uint32_t)cdac_data<Thread>::Frame;
+    info.frame_Next = (uint32_t)cdac_data<Frame>::Next;
+    info.inlinedCallFrame_CallerReturnAddress = (uint32_t)offsetof(InlinedCallFrame, m_pCallerReturnAddress);
+    info.inlinedCallFrame_Size = (uint32_t)sizeof(InlinedCallFrame);
+    info.inlinedCallFrameIdentifier = (uint64_t)FrameIdentifier::InlinedCallFrame;
+
     info.initialized = 1;
     InProcDump_InitManagedDebug(&info);
 }

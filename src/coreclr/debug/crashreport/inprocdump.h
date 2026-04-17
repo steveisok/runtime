@@ -259,6 +259,30 @@ struct InProcManagedDebugInfo
 
     // Module → PE base
     uint32_t module_Base;
+
+    // Module → ReadyToRunInfo (for R2R code resolution)
+    uint32_t module_ReadyToRunInfo;
+
+    // ReadyToRunInfo fields (for binary search over RuntimeFunctions)
+    uint32_t readyToRunInfo_NumRuntimeFunctions;
+    uint32_t readyToRunInfo_RuntimeFunctions;
+    uint32_t readyToRunInfo_CompositeInfo;
+    uint32_t readyToRunInfo_EntryPointToMethodDescMap;
+    uint32_t readyToRunInfo_NumHotColdMap;
+    uint32_t readyToRunInfo_HotColdMap;
+    uint32_t readyToRunInfo_DelayLoadMethodCallThunks;
+    uint32_t runtimeFunction_Size;
+
+    // HashMap fields (for EntryPointToMethodDescMap bucket resolution)
+    uint32_t hashMap_Buckets;
+    uint32_t bucket_Size;
+
+    // Managed frame chain walking (for InlinedCallFrame CallerReturnAddress IPs)
+    uint32_t thread_Frame;
+    uint32_t frame_Next;
+    uint32_t inlinedCallFrame_CallerReturnAddress;
+    uint32_t inlinedCallFrame_Size;
+    uint64_t inlinedCallFrameIdentifier;
 };
 
 // ---------------------------------------------------------------------------

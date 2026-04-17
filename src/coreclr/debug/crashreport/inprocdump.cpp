@@ -896,28 +896,38 @@ static uint64_t CaptureRangeSectionForIP(const struct InProcDumpState* state,
     // Mask off collectible tag bit
     l4Ptr &= ~(uint64_t)1;
     if (l4Ptr == 0) return 0;
+    // Capture both the base page and the specific entry page (each level is
+    // 256 entries × 8 bytes = 2KB, which can straddle a 4KB page boundary).
+    uint64_t l4EntryAddr = l4Ptr + (ip >> 41 & 0xFF) * 8;
     CapturePage(state, l4Ptr);
+    CapturePage(state, l4EntryAddr);
 
     // L4: index from bits [48:41]
     uint64_t l4Idx = (ip >> 41) & 0xFF;
     uint64_t l3Ptr = ReadPointerSafe(state, l4Ptr + l4Idx * 8);
     l3Ptr &= ~(uint64_t)1;
     if (l3Ptr == 0) return 0;
+    uint64_t l3EntryAddr = l3Ptr + (ip >> 33 & 0xFF) * 8;
     CapturePage(state, l3Ptr);
+    CapturePage(state, l3EntryAddr);
 
     // L3: index from bits [40:33]
     uint64_t l3Idx = (ip >> 33) & 0xFF;
     uint64_t l2Ptr = ReadPointerSafe(state, l3Ptr + l3Idx * 8);
     l2Ptr &= ~(uint64_t)1;
     if (l2Ptr == 0) return 0;
+    uint64_t l2EntryAddr = l2Ptr + (ip >> 25 & 0xFF) * 8;
     CapturePage(state, l2Ptr);
+    CapturePage(state, l2EntryAddr);
 
     // L2: index from bits [32:25]
     uint64_t l2Idx = (ip >> 25) & 0xFF;
     uint64_t l1Ptr = ReadPointerSafe(state, l2Ptr + l2Idx * 8);
     l1Ptr &= ~(uint64_t)1;
     if (l1Ptr == 0) return 0;
+    uint64_t l1EntryAddr = l1Ptr + (ip >> 17 & 0xFF) * 8;
     CapturePage(state, l1Ptr);
+    CapturePage(state, l1EntryAddr);
 
     // L1: index from bits [24:17]. Each entry is a RangeSectionFragmentPointer.
     uint64_t l1Idx = (ip >> 17) & 0xFF;
@@ -1125,13 +1135,118 @@ static void CaptureMethodChainForIP(const struct InProcDumpState* state,
     }
     else if (!(flags & 0x4))  // Not RANGE_SECTION_RANGELIST
     {
-        // R2R module — capture the Module pointer directly from RangeSection
+        // R2R module — capture the Module + ReadyToRunInfo + RuntimeFunctions
+        // needed for the cDAC to resolve managed IPs via GetCodeBlockHandle.
         uint64_t modulePtr = ReadPointerSafe(state, rangeSectionPtr + dbg->rangeSection_R2RModule);
-        if (modulePtr != 0)
+        if (modulePtr == 0)
+            return;
+
+        // Module object (can be >1 page)
+        CaptureRange(state, modulePtr, 1200);
+
+        uint64_t peBase = ReadPointerSafe(state, modulePtr + dbg->module_Base);
+        CapturePage(state, peBase);
+
+        // ReadyToRunInfo object
+        uint64_t r2rInfoPtr = ReadPointerSafe(state, modulePtr + dbg->module_ReadyToRunInfo);
+        if (r2rInfoPtr == 0)
+            return;
+        CaptureRange(state, r2rInfoPtr, 700);
+
+        // CompositeInfo (for EntryPointToMethodDescMap resolution)
+        uint64_t compositeInfo = ReadPointerSafe(state, r2rInfoPtr + dbg->readyToRunInfo_CompositeInfo);
+        if (compositeInfo != 0)
+            CaptureRange(state, compositeInfo, 700);
+
+        // RuntimeFunctions array: simulate the binary search probes the cDAC
+        // will make and capture only the pages those probes touch.
+        uint32_t numRtFuncs = ReadU32Safe(state, r2rInfoPtr + dbg->readyToRunInfo_NumRuntimeFunctions);
+        uint64_t rtFuncsBase = ReadPointerSafe(state, r2rInfoPtr + dbg->readyToRunInfo_RuntimeFunctions);
+        if (numRtFuncs == 0 || rtFuncsBase == 0)
+            return;
+
+        uint32_t rtFuncSize = dbg->runtimeFunction_Size;
+        if (rtFuncSize == 0)
+            rtFuncSize = 8;  // fallback: ARM64 RUNTIME_FUNCTION is 8 bytes
+
+        // RangeSection.RangeBegin is the image base for R2R
+        uint64_t rangeBegin = ReadPointerSafe(state, rangeSectionPtr + dbg->rangeSection_RangeBegin);
+        uint64_t relAddr = (ip > rangeBegin) ? (ip - rangeBegin) : 0;
+
+        // Binary search simulation: capture pages that the cDAC's
+        // BinaryThenLinearSearch will probe.
+        uint32_t lo = 0;
+        uint32_t hi = numRtFuncs - 1;
+        int probes = 0;
+        while (hi - lo > 10 && probes < 30)
         {
-            CapturePage(state, modulePtr);
-            uint64_t peBase = ReadPointerSafe(state, modulePtr + dbg->module_Base);
-            CapturePage(state, peBase);
+            uint32_t mid = lo + (hi - lo) / 2;
+            uint64_t midAddr = rtFuncsBase + (uint64_t)mid * rtFuncSize;
+            CapturePage(state, midAddr);
+
+            uint32_t beginAddr = ReadU32Safe(state, midAddr);
+            if (relAddr < beginAddr)
+                hi = mid - 1;
+            else
+                lo = mid;
+            probes++;
+        }
+
+        // Capture the linear search range (lo..hi, up to ~11 entries)
+        uint64_t linearStart = rtFuncsBase + (uint64_t)lo * rtFuncSize;
+        uint64_t linearEnd = rtFuncsBase + ((uint64_t)hi + 1) * rtFuncSize;
+        CaptureRange(state, linearStart, linearEnd - linearStart);
+
+        // Also capture a walkback range before the found index.
+        // AdjustRuntimeFunctionToMethodStart walks backwards from the found
+        // index looking for a MethodDesc. Funclets are typically within ~64
+        // entries of their parent function.
+        uint32_t walkbackEntries = 64;
+        uint32_t walkbackStart = lo > walkbackEntries ? lo - walkbackEntries : 0;
+        uint64_t walkbackAddr = rtFuncsBase + (uint64_t)walkbackStart * rtFuncSize;
+        uint64_t walkbackSize = ((uint64_t)lo - walkbackStart + 1) * rtFuncSize;
+        CaptureRange(state, walkbackAddr, walkbackSize);
+
+        // EntryPointToMethodDescMap (HashMap for MethodDesc lookup)
+        uint64_t entryMapAddr = compositeInfo != 0
+            ? compositeInfo + dbg->readyToRunInfo_EntryPointToMethodDescMap
+            : r2rInfoPtr + dbg->readyToRunInfo_EntryPointToMethodDescMap;
+        CapturePage(state, entryMapAddr);
+
+        // HashMap.Buckets pointer — use the actual offset from the contract descriptor
+        uint64_t bucketsPtr = ReadPointerSafe(state, entryMapAddr + dbg->hashMap_Buckets);
+        if (bucketsPtr != 0)
+        {
+            // First element at bucketsPtr is the bucket count (pointer-sized).
+            // Read it so we can capture the full bucket array.
+            CapturePage(state, bucketsPtr);
+            uint64_t numBuckets = ReadPointerSafe(state, bucketsPtr);
+
+            // Each bucket is bucket_Size bytes. Total array = (numBuckets + 1) * bucketSize
+            // (the +1 accounts for the size element stored as the first "bucket").
+            uint32_t bucketSize = dbg->bucket_Size > 0 ? dbg->bucket_Size : 64;
+            uint64_t totalSize = (numBuckets + 1) * bucketSize;
+
+            // Cap at 512KB to avoid excessive capture for very large HashMaps.
+            if (totalSize > 512 * 1024)
+                totalSize = 512 * 1024;
+
+            CaptureRange(state, bucketsPtr, totalSize);
+        }
+
+        // DelayLoadMethodCallThunks (ImageDataDirectory - 8 bytes)
+        uint64_t thunksPtr = ReadPointerSafe(state, r2rInfoPtr + dbg->readyToRunInfo_DelayLoadMethodCallThunks);
+        if (thunksPtr != 0)
+            CapturePage(state, thunksPtr);
+
+        // HotColdMap
+        uint32_t numHotCold = ReadU32Safe(state, r2rInfoPtr + dbg->readyToRunInfo_NumHotColdMap);
+        uint64_t hotColdMap = ReadPointerSafe(state, r2rInfoPtr + dbg->readyToRunInfo_HotColdMap);
+        if (numHotCold > 0 && hotColdMap != 0)
+        {
+            uint64_t hotColdSize = (uint64_t)numHotCold * 4;  // uint32 pairs
+            if (hotColdSize > 65536) hotColdSize = 65536;
+            CaptureRange(state, hotColdMap, hotColdSize);
         }
     }
 }
@@ -1139,7 +1254,9 @@ static void CaptureMethodChainForIP(const struct InProcDumpState* state,
 // Scan a thread's stack for potential return addresses (code pointers).
 // We use frame-pointer chain walking on ARM64, with fallback to stack scanning.
 static void CollectStackIPs(const struct InProcDumpState* state,
+                            const struct InProcManagedDebugInfo* dbg,
                             const struct InProcThreadInfo* thread,
+                            uint64_t threadObjAddr,
                             uint64_t* ips, int* ipCount, int maxIPs)
 {
     *ipCount = 0;
@@ -1216,6 +1333,53 @@ static void CollectStackIPs(const struct InProcDumpState* state,
         currentFP = savedFP;
         frameCount++;
     }
+
+    // Walk the managed frame chain to collect CallerReturnAddress from InlinedCallFrames.
+    // The cDAC stack walker follows Thread::m_pFrame → Frame::m_Next chain and reads
+    // InlinedCallFrame::m_pCallerReturnAddress for R2R IP resolution.
+    if (threadObjAddr != 0 && dbg->thread_Frame != 0)
+    {
+        uint64_t framePtr = 0;
+        int frameRegion = InProcDump_FindRegion(state, threadObjAddr + dbg->thread_Frame);
+        if (frameRegion >= 0)
+        {
+            framePtr = *(const uint64_t*)(threadObjAddr + dbg->thread_Frame);
+        }
+
+        int managedFrameCount = 0;
+        while (framePtr != 0 && framePtr != (uint64_t)-1 && managedFrameCount < 64 && *ipCount < maxIPs)
+        {
+            int fRegion = InProcDump_FindRegion(state, framePtr);
+            if (fRegion < 0)
+                break;
+
+            // Ensure we can read the frame identifier (offset 0) and Next (offset frame_Next)
+            if (framePtr + dbg->frame_Next + 8 > state->regions[fRegion].end)
+                break;
+
+            uint64_t identifier = *(const uint64_t*)framePtr;
+
+            // If this is an InlinedCallFrame, read CallerReturnAddress
+            if (identifier == dbg->inlinedCallFrameIdentifier)
+            {
+                uint64_t callerRAAddr = framePtr + dbg->inlinedCallFrame_CallerReturnAddress;
+                int raRegion = InProcDump_FindRegion(state, callerRAAddr);
+                if (raRegion >= 0 && callerRAAddr + 8 <= state->regions[raRegion].end)
+                {
+                    uint64_t callerRA = *(const uint64_t*)callerRAAddr;
+                    if (callerRA != 0)
+                        ips[(*ipCount)++] = callerRA;
+                }
+            }
+
+            // Move to next frame
+            uint64_t nextFrame = *(const uint64_t*)(framePtr + dbg->frame_Next);
+            if (nextFrame == framePtr)
+                break;
+            framePtr = nextFrame;
+            managedFrameCount++;
+        }
+    }
 }
 
 // Main Tier 2 capture function. Called from InProcDump_Generate while threads
@@ -1242,7 +1406,7 @@ static void CollectManagedDebugPages(struct InProcDumpState* state)
 
     for (int t = 0; t < state->threadCount; t++)
     {
-        CollectStackIPs(state, &state->threads[t], ips, &ipCount, INPROC_MAX_STACK_IPS);
+        CollectStackIPs(state, dbg, &state->threads[t], 0 /*threadObjAddr*/, ips, &ipCount, INPROC_MAX_STACK_IPS);
 
         for (int i = 0; i < ipCount; i++)
         {
@@ -1250,6 +1414,60 @@ static void CollectManagedDebugPages(struct InProcDumpState* state)
             if (rangeSectionPtr != 0)
             {
                 CaptureMethodChainForIP(state, dbg, rangeSectionPtr, ips[i]);
+            }
+        }
+    }
+
+    // Phase 4: Walk managed frame chains to collect InlinedCallFrame CallerReturnAddress IPs.
+    // These IPs point into R2R code and need the same R2R capture as register IPs.
+    {
+        uint64_t threadStorePtr = ReadPointerSafe(state, dbg->threadStoreAddr);
+        if (threadStorePtr != 0)
+        {
+            uint64_t linkAddr = ReadPointerSafe(state, threadStorePtr + dbg->threadStore_FirstThreadLink);
+            int walked = 0;
+            while (linkAddr != 0 && walked < 256)
+            {
+                uint64_t threadAddr = linkAddr - dbg->thread_Link;
+                uint64_t framePtr = ReadPointerSafe(state, threadAddr + dbg->thread_Frame);
+                int managedFrameCount = 0;
+
+                while (framePtr != 0 && framePtr != (uint64_t)-1
+                       && managedFrameCount < 64)
+                {
+                    // Capture the frame so the cDAC can read it from the dump
+                    CapturePage(state, framePtr);
+
+                    int fRegion = InProcDump_FindRegion(state, framePtr);
+                    if (fRegion < 0)
+                        break;
+                    if (framePtr + dbg->frame_Next + 8 > state->regions[fRegion].end)
+                        break;
+
+                    uint64_t identifier = *(const uint64_t*)framePtr;
+                    if (identifier == dbg->inlinedCallFrameIdentifier)
+                    {
+                        // Capture the full InlinedCallFrame so the cDAC can read all fields
+                        CaptureRange(state, framePtr, dbg->inlinedCallFrame_Size);
+
+                        uint64_t callerRA = ReadPointerSafe(state, framePtr + dbg->inlinedCallFrame_CallerReturnAddress);
+                        if (callerRA != 0)
+                        {
+                            uint64_t rs = CaptureRangeSectionForIP(state, dbg, callerRA);
+                            if (rs != 0)
+                                CaptureMethodChainForIP(state, dbg, rs, callerRA);
+                        }
+                    }
+
+                    uint64_t nextFrame = *(const uint64_t*)(framePtr + dbg->frame_Next);
+                    if (nextFrame == framePtr)
+                        break;
+                    framePtr = nextFrame;
+                    managedFrameCount++;
+                }
+
+                linkAddr = ReadPointerSafe(state, linkAddr);
+                walked++;
             }
         }
     }
