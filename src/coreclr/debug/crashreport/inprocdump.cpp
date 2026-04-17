@@ -751,8 +751,22 @@ static void CapturePage(const struct InProcDumpState* state, uint64_t addr)
     AddManagedPage(addr, 1);
 }
 
-// Walk the ThreadStore → Thread linked list and capture each Thread object's page.
+// Capture enough pages to cover a range of 'size' bytes starting at 'addr'.
+// The Thread object is ~3.5KB, so it may span two 4KB pages when not page-aligned.
+static void CaptureRange(const struct InProcDumpState* state, uint64_t addr, uint64_t size)
+{
+    if (addr == 0 || size == 0)
+        return;
+
+    if (InProcDump_FindRegion(state, addr) < 0)
+        return;
+
+    AddManagedPage(addr, size);
+}
+
+// Walk the ThreadStore → Thread linked list and capture each Thread object's page(s).
 // This enables clrthreads to enumerate managed threads.
+// Thread objects are ~3.5KB and may span two 4KB pages depending on alignment.
 static void CaptureThreadObjects(const struct InProcDumpState* state,
                                  const struct InProcManagedDebugInfo* dbg)
 {
@@ -782,11 +796,22 @@ static void CaptureThreadObjects(const struct InProcDumpState* state,
     {
         // Compute Thread object address from its Link field address
         uint64_t threadAddr = linkAddr - dbg->thread_Link;
-        CapturePage(state, threadAddr);
+
+        // Capture enough pages to cover the full Thread object (~3.5KB).
+        // When the object is not page-aligned this spans two 4KB pages.
+        static const uint64_t kThreadObjectSize = 4096;
+        CaptureRange(state, threadAddr, kThreadObjectSize);
 
         // Also capture RuntimeThreadLocals if present
         uint64_t rtlPtr = ReadPointerSafe(state, threadAddr + dbg->thread_RuntimeThreadLocals);
         CapturePage(state, rtlPtr);
+
+        // Capture GC handle pages for ExposedObject and LastThrownObject.
+        // The cDAC dereferences these handles when constructing Thread data.
+        uint64_t exposedObj = ReadPointerSafe(state, threadAddr + dbg->thread_ExposedObject);
+        CapturePage(state, exposedObj);
+        uint64_t lastThrown = ReadPointerSafe(state, threadAddr + dbg->thread_LastThrownObject);
+        CapturePage(state, lastThrown);
 
         // Follow the linked list: Thread.m_Link contains an SLink with a
         // single pointer field (_next) at offset 0.

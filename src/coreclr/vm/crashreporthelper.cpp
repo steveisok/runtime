@@ -389,6 +389,8 @@ void CrashReport_InitManagedDebugDump()
     info.thread_OSId = (uint32_t)cdac_data<Thread>::OSId;
     info.thread_State = (uint32_t)cdac_data<Thread>::State;
     info.thread_RuntimeThreadLocals = (uint32_t)cdac_data<Thread>::RuntimeThreadLocals;
+    info.thread_ExposedObject = (uint32_t)cdac_data<Thread>::ExposedObject;
+    info.thread_LastThrownObject = (uint32_t)cdac_data<Thread>::LastThrownObject;
 
     // EEJitManager → HeapList chain offsets
     info.eeJitManager_AllCodeHeaps = (uint32_t)cdac_data<EEJitManager>::AllCodeHeaps;

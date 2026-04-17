@@ -218,6 +218,8 @@ struct InProcManagedDebugInfo
     uint32_t thread_OSId;
     uint32_t thread_State;
     uint32_t thread_RuntimeThreadLocals;
+    uint32_t thread_ExposedObject;
+    uint32_t thread_LastThrownObject;
 
     // EEJitManager → HeapList chain offsets
     uint32_t eeJitManager_AllCodeHeaps;
