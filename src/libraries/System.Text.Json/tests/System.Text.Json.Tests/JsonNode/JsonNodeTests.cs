@@ -3,6 +3,7 @@
 
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using Xunit;
 
 namespace System.Text.Json.Nodes.Tests
@@ -338,6 +339,26 @@ namespace System.Text.Json.Nodes.Tests
             JsonNode node = JsonValue.Create(42);
             JsonValue value = node.AsValue();
             Assert.Equal(42, value.GetValue<int>());
+        }
+
+        [Theory]
+        [InlineData(5)]
+        [InlineData(32)]
+        public static void Deserialize_JsonNode_RespectsMaxDepth_DeeplyNestedArrays(int maxDepth)
+        {
+            var options = new JsonSerializerOptions { MaxDepth = maxDepth };
+
+            // Exactly at max depth: should succeed.
+            string withinDepth = string.Concat(Enumerable.Repeat("[", maxDepth))
+                                + string.Concat(Enumerable.Repeat("]", maxDepth));
+            JsonNode? node = JsonSerializer.Deserialize<JsonNode>(withinDepth, options);
+            Assert.NotNull(node);
+            Assert.IsType<JsonArray>(node);
+
+            // One level beyond max depth: must throw JsonException.
+            string beyondDepth = string.Concat(Enumerable.Repeat("[", maxDepth + 1))
+                               + string.Concat(Enumerable.Repeat("]", maxDepth + 1));
+            Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<JsonNode>(beyondDepth, options));
         }
     }
 }

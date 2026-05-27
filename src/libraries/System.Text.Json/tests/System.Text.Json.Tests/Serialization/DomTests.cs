@@ -210,6 +210,43 @@ namespace System.Text.Json.Serialization.Tests
             Assert.Throws<JsonException>(() => JsonSerializer.SerializeToNode(value, options));
         }
 
+        [Theory]
+        [InlineData(5)]
+        [InlineData(32)]
+        [InlineData(70)] // default max depth is 64
+        public static void DeserializeToNode_RespectsMaxDepth_Arrays(int maxDepth)
+        {
+            var options = new JsonSerializerOptions { MaxDepth = maxDepth };
+
+            // Exactly at max depth should succeed.
+            string withinDepth = string.Concat(Enumerable.Repeat("[", maxDepth)) + string.Concat(Enumerable.Repeat("]", maxDepth));
+            JsonNode? node = JsonSerializer.Deserialize<JsonNode>(withinDepth, options);
+            Assert.NotNull(node);
+
+            // One level beyond max depth should throw.
+            string beyondDepth = string.Concat(Enumerable.Repeat("[", maxDepth + 1)) + string.Concat(Enumerable.Repeat("]", maxDepth + 1));
+            Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<JsonNode>(beyondDepth, options));
+            Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<JsonArray>(beyondDepth, options));
+        }
+
+        [Theory]
+        [InlineData(5)]
+        [InlineData(32)]
+        [InlineData(70)] // default max depth is 64
+        public static void DeserializeToNode_RespectsMaxDepth_Objects(int maxDepth)
+        {
+            var options = new JsonSerializerOptions { MaxDepth = maxDepth };
+
+            // Build nested object JSON: {"x":{"x":...{"x":1}...}}
+            string withinDepth = string.Concat(Enumerable.Repeat("{\"x\":", maxDepth)) + "1" + string.Concat(Enumerable.Repeat("}", maxDepth));
+            JsonNode? node = JsonSerializer.Deserialize<JsonNode>(withinDepth, options);
+            Assert.NotNull(node);
+
+            string beyondDepth = string.Concat(Enumerable.Repeat("{\"x\":", maxDepth + 1)) + "1" + string.Concat(Enumerable.Repeat("}", maxDepth + 1));
+            Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<JsonNode>(beyondDepth, options));
+            Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<JsonObject>(beyondDepth, options));
+        }
+
         public class RecursiveClass
         {
             public RecursiveClass? Next { get; set; }
