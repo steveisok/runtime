@@ -210,6 +210,26 @@ namespace System.Text.Json.Serialization.Tests
             Assert.Throws<JsonException>(() => JsonSerializer.SerializeToNode(value, options));
         }
 
+        [Theory]
+        [InlineData(5)]
+        [InlineData(32)]
+        [InlineData(70)] // default max depth is 64
+        public static void DeserializeToNode_RespectsMaxDepth(int maxDepth)
+        {
+            var options = new JsonSerializerOptions { MaxDepth = maxDepth };
+
+            // Deserializing JSON at exactly the max depth should succeed.
+            string validJson = string.Concat(Enumerable.Repeat("[", maxDepth))
+                             + string.Concat(Enumerable.Repeat("]", maxDepth));
+            JsonNode? node = JsonSerializer.Deserialize<JsonNode>(validJson, options);
+            Assert.NotNull(node);
+
+            // Deserializing JSON exceeding the max depth by one should throw.
+            string tooDeepJson = string.Concat(Enumerable.Repeat("[", maxDepth + 1))
+                               + string.Concat(Enumerable.Repeat("]", maxDepth + 1));
+            Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<JsonNode>(tooDeepJson, options));
+        }
+
         public class RecursiveClass
         {
             public RecursiveClass? Next { get; set; }
