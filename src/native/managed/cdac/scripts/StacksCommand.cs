@@ -2,6 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.CommandLine;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using Microsoft.Diagnostics.DataContractReader;
 using Microsoft.Diagnostics.DataContractReader.Contracts;
 using Microsoft.Diagnostics.Runtime;
@@ -93,17 +95,10 @@ internal sealed class StacksCommand : Command
                             try
                             {
                                 MethodDescHandle mdHandle = rts.GetMethodDescHandle(mdPtr);
-                                if (rts.IsNoMetadataMethod(mdHandle, out string methodName))
-                                {
-                                    frameName = methodName;
-                                }
-                                else
-                                {
-                                    TargetPointer mt = rts.GetMethodTable(mdHandle);
-                                    frameName = $"MD@0x{mdPtr.Value:x} (MT: 0x{mt.Value:x})";
-                                }
+                                frameName = ResolveMethodName(cdac, rts, mdHandle)
+                                    ?? $"MD@0x{mdPtr.Value:x}";
                             }
-                            catch
+                            catch (Exception)
                             {
                                 frameName = $"MethodDesc@0x{mdPtr.Value:x}";
                             }
@@ -139,5 +134,36 @@ internal sealed class StacksCommand : Command
             threadAddr = td.NextThread;
             idx++;
         }
+    }
+
+    // Resolves a MethodDesc to a fully-qualified "Namespace.Type.Method" name via ECMA metadata.
+    // Returns null if the name cannot be resolved (e.g. metadata not captured in the dump).
+    private static string? ResolveMethodName(ContractDescriptorTarget cdac, IRuntimeTypeSystem rts, MethodDescHandle mdHandle)
+    {
+        if (rts.IsNoMetadataMethod(mdHandle, out string dynamicName))
+            return dynamicName;
+
+        uint token = rts.GetMethodToken(mdHandle);
+        TargetPointer mt = rts.GetMethodTable(mdHandle);
+        TargetPointer modulePtr = rts.GetModule(rts.GetTypeHandle(mt));
+
+        ILoader loader = cdac.Contracts.GetContract<ILoader>();
+        Microsoft.Diagnostics.DataContractReader.Contracts.ModuleHandle moduleHandle = loader.GetModuleHandleFromModulePtr(modulePtr);
+
+        IEcmaMetadata ecmaMetadata = cdac.Contracts.GetContract<IEcmaMetadata>();
+        MetadataReader? reader = ecmaMetadata.GetMetadata(moduleHandle);
+        if (reader is null)
+            return null;
+
+        var methodDef = MetadataTokens.MethodDefinitionHandle((int)(token & 0x00FFFFFF));
+        MethodDefinition method = reader.GetMethodDefinition(methodDef);
+        string methodName = reader.GetString(method.Name);
+
+        TypeDefinition declaringType = reader.GetTypeDefinition(method.GetDeclaringType());
+        string typeName = reader.GetString(declaringType.Name);
+        string ns = reader.GetString(declaringType.Namespace);
+        string fullTypeName = string.IsNullOrEmpty(ns) ? typeName : $"{ns}.{typeName}";
+
+        return $"{fullTypeName}.{methodName}";
     }
 }
