@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <UseMonoRuntime>false</UseMonoRuntime>
+    <MonoForceInterpreter>false</MonoForceInterpreter>
+    <RunAOTCompilation>false</RunAOTCompilation>
+    <TestRuntime>true</TestRuntime>
+    <TargetFramework>$(NetCoreAppCurrent)</TargetFramework>
+    <TargetOS Condition="'$(TargetOS)' == ''">iossimulator</TargetOS>
+    <MainLibraryFileName>iOS.Simulator.CrashReportMiniDump.Test.dll</MainLibraryFileName>
+    <IncludesTestRunner>false</IncludesTestRunner>
+    <ExpectedExitCode>134</ExpectedExitCode>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EnvironmentVariables Include="DOTNET_EnableCrashReport=1" />
+    <EnvironmentVariables Include="DOTNET_CrashReportRootPath=/tmp" />
+    <EnvironmentVariables Include="DOTNET_CrashReportMiniDump=1" />
+    <EnvironmentVariables Include="DOTNET_CrashReportMaxFileCount=4" />
+    <EnvironmentVariables Include="DOTNET_DbgMiniDumpType=1" />
+  </ItemGroup>
+</Project>
