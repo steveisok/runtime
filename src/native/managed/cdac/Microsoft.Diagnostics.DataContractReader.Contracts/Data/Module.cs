@@ -29,7 +29,9 @@ internal sealed partial class Module : IData<Module>
     [FieldAddress] public TargetPointer MethodDefToDescMap { get; }
     [FieldAddress] public TargetPointer TypeDefToMethodTableMap { get; }
     [FieldAddress] public TargetPointer TypeRefToMethodTableMap { get; }
-    [FieldAddress] public TargetPointer MethodDefToILCodeVersioningStateMap { get; }
+    // Descriptor-optional: only emitted when the runtime is built with FEATURE_CODE_VERSIONING
+    // (tiered compilation). Absent on runtimes without it (e.g. mobile/iOS).
+    [FieldAddress] public TargetPointer? MethodDefToILCodeVersioningStateMap { get; }
     [FieldAddress] public TargetPointer? EnCClassList { get; }
     [Field] public TargetPointer DynamicILBlobTable { get; }
 }

@@ -7,6 +7,8 @@ namespace Microsoft.Diagnostics.DataContractReader.Data;
 internal sealed partial class MethodDescCodeData : IData<MethodDescCodeData>
 {
     [Field] public TargetCodePointer TemporaryEntryPoint { get; }
-    [Field] public TargetPointer VersioningState { get; }
-    [Field] public uint OptimizationTier { get; }
+    // Descriptor-optional: only emitted when the runtime is built with FEATURE_CODE_VERSIONING
+    // (tiered compilation). Absent on runtimes without it (e.g. mobile/iOS).
+    [Field] public TargetPointer? VersioningState { get; }
+    [Field] public uint? OptimizationTier { get; }
 }

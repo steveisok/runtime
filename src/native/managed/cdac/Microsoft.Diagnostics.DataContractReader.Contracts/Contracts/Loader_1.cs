@@ -533,7 +533,7 @@ internal readonly struct Loader_1 : ILoader
             module.MethodDefToDescMap,
             module.TypeDefToMethodTableMap,
             module.TypeRefToMethodTableMap,
-            module.MethodDefToILCodeVersioningStateMap,
+            module.MethodDefToILCodeVersioningStateMap ?? TargetPointer.Null,
             tableDataOffset);
     }
 

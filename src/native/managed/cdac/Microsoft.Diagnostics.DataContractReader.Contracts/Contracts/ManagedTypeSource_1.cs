@@ -250,30 +250,40 @@ internal sealed class ManagedTypeSource_1 : IManagedTypeSource
     {
         th = new TypeHandle(TargetPointer.Null);
         typeDef = default;
+        mdReader = null;
 
-        ILoader loader = _target.Contracts.Loader;
-        TargetPointer systemAssembly = loader.GetSystemAssembly();
-        if (systemAssembly == TargetPointer.Null)
+        try
         {
+            ILoader loader = _target.Contracts.Loader;
+            TargetPointer systemAssembly = loader.GetSystemAssembly();
+            if (systemAssembly == TargetPointer.Null)
+                return false;
+
+            ModuleHandle moduleHandle = loader.GetModuleHandleFromAssemblyPtr(systemAssembly);
+
+            if (!TryFindTypeDefinition(moduleHandle, managedFqName, out mdReader, out TypeDefinitionHandle typeDefHandle))
+                return false;
+
+            // Look up the runtime TypeHandle via the module's TypeDef → MethodTable map.
+            int token = MetadataTokens.GetToken((EntityHandle)typeDefHandle);
+            TargetPointer typeDefToMethodTable = loader.GetLookupTables(moduleHandle).TypeDefToMethodTable;
+            TargetPointer typeHandlePtr = loader.GetModuleLookupMapElement(typeDefToMethodTable, (uint)token, out _);
+            if (typeHandlePtr == TargetPointer.Null)
+                return false;
+
+            th = _target.Contracts.RuntimeTypeSystem.GetTypeHandle(typeHandlePtr);
+            typeDef = mdReader.GetTypeDefinition(typeDefHandle);
+            return true;
+        }
+        catch (VirtualReadException)
+        {
+            // A lightweight dump (e.g. an in-proc mobile crash dump) may omit the module
+            // metadata needed to resolve a managed type. Treat that as "not resolvable" so
+            // best-effort layout probing degrades gracefully instead of aborting operations
+            // such as thread enumeration.
             mdReader = null;
             return false;
         }
-
-        ModuleHandle moduleHandle = loader.GetModuleHandleFromAssemblyPtr(systemAssembly);
-
-        if (!TryFindTypeDefinition(moduleHandle, managedFqName, out mdReader, out TypeDefinitionHandle typeDefHandle))
-            return false;
-
-        // Look up the runtime TypeHandle via the module's TypeDef → MethodTable map.
-        int token = MetadataTokens.GetToken((EntityHandle)typeDefHandle);
-        TargetPointer typeDefToMethodTable = loader.GetLookupTables(moduleHandle).TypeDefToMethodTable;
-        TargetPointer typeHandlePtr = loader.GetModuleLookupMapElement(typeDefToMethodTable, (uint)token, out _);
-        if (typeHandlePtr == TargetPointer.Null)
-            return false;
-
-        th = _target.Contracts.RuntimeTypeSystem.GetTypeHandle(typeHandlePtr);
-        typeDef = mdReader.GetTypeDefinition(typeDefHandle);
-        return true;
     }
 
     /// <summary>

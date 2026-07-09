@@ -1720,7 +1720,7 @@ internal partial struct RuntimeTypeSystem_1 : IRuntimeTypeSystem
             return TargetPointer.Null;
 
         Data.MethodDescCodeData codeData = _target.ProcessedData.GetOrAdd<Data.MethodDescCodeData>(codeDataAddress);
-        return codeData.VersioningState;
+        return codeData.VersioningState ?? TargetPointer.Null;
     }
 
     uint IRuntimeTypeSystem.GetMethodToken(MethodDescHandle methodDescHandle)
