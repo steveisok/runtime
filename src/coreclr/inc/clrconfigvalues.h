@@ -580,6 +580,7 @@ RETAIL_CONFIG_DWORD_INFO(INTERNAL_CrashReportBeforeSignalChaining, W("CrashRepor
 RETAIL_CONFIG_DWORD_INFO_EX(INTERNAL_CrashReportFrameLimitPerThread, W("CrashReportFrameLimitPerThread"), 32, "Maximum number of managed stack frames per thread to emit in the in-proc crash report's compact log; 0 disables the limit; remaining frames are summarized as '... +N more frames'", CLRConfig::LookupOptions::ParseIntegerAsBase10)
 RETAIL_CONFIG_STRING_INFO(INTERNAL_CrashReportRootPath, W("CrashReportRootPath"), "Root path for lifecycle-managed in-proc crash report JSON files")
 RETAIL_CONFIG_DWORD_INFO_EX(INTERNAL_CrashReportMaxFileCount, W("CrashReportMaxFileCount"), 32, "Maximum number of lifecycle-managed in-proc crash report JSON files to retain (positive integer); default 32", CLRConfig::LookupOptions::ParseIntegerAsBase10)
+RETAIL_CONFIG_DWORD_INFO_EX(INTERNAL_CrashReportMiniDump, W("CrashReportMiniDump"), 0, "Enable lifecycle-managed in-proc crash report minidump generation", CLRConfig::LookupOptions::ParseIntegerAsBase10)
 
 ///
 /// R2R

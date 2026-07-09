@@ -8,6 +8,7 @@
 #include "inproccrashreporter.h"
 #include "inproccrashreportlifecycle.h"
 #include "crashreportstringutils.h"
+#include "inprocminidumpwriter.h"
 #include "inproccrashreportwatchdog.h"
 #include "signalsafeconsolewriter.h"
 #include "signalsafejsonwriter.h"
@@ -387,6 +388,9 @@ private:
         int signal,
         bool jsonEnabled,
         int fd);
+    void WriteMiniDump(
+        bool miniDumpEnabled,
+        int fd);
 
     static const char* GetSignalNameAscii(int signal);
 
@@ -397,14 +401,17 @@ private:
     ThreadEnumerationContext m_threadContext;
     CrashReportOutputContext m_outputContext;
     SignalSafeFormatter m_formatter;
+    InProcMiniDumpWriter m_miniDumpWriter;
     InProcCrashReportIsManagedThreadCallback m_isManagedThreadCallback = nullptr;
     InProcCrashReportWalkStackCallback m_walkStackCallback = nullptr;
     InProcCrashReportEnumerateThreadsCallback m_enumerateThreadsCallback = nullptr;
     InProcCrashReportModuleInfoCallback m_moduleInfoCallback = nullptr;
     volatile LONG m_crashKind = static_cast<LONG>(InProcCrashReportCrashKind::Unknown);
     uint32_t m_frameLimitPerThread = 0;
+    bool m_createMiniDump = false;
     InProcCrashReportLifecycle m_lifecycle;
     char m_reportFilePath[CRASHREPORT_PATH_BUFFER_SIZE];
+    char m_miniDumpFilePath[CRASHREPORT_PATH_BUFFER_SIZE];
     char m_processName[CRASHREPORT_STRING_BUFFER_SIZE];
     char m_stringScratch[CRASHREPORT_STRING_BUFFER_SIZE];
 #if defined(TARGET_IOS) || defined(TARGET_TVOS) || defined(TARGET_MACCATALYST)
@@ -580,6 +587,7 @@ InProcCrashReporter::CreateReport(
     CrashReportWatchdogScope watchdogScope;
 
     m_reportFilePath[0] = '\0';
+    m_miniDumpFilePath[0] = '\0';
     // The JSON file sink is enabled only by lifecycle-managed output. Otherwise
     // the crash report runs in compact-log-only mode: the JSON emitter still
     // executes (so it can keep its bookkeeping consistent) but writes go to a
@@ -591,6 +599,17 @@ InProcCrashReporter::CreateReport(
     if (jsonEnabled && fd == -1)
     {
         jsonEnabled = false;
+    }
+
+    int miniDumpFd = -1;
+    bool miniDumpEnabled = m_createMiniDump &&
+        m_miniDumpWriter.IsEnabled() &&
+        m_lifecycle.IsReportFileOutputEnabled() &&
+        m_lifecycle.PrepareMiniDumpFile(&m_formatter, m_miniDumpFilePath, sizeof(m_miniDumpFilePath), &miniDumpFd);
+
+    if (miniDumpEnabled && miniDumpFd == -1)
+    {
+        miniDumpEnabled = false;
     }
 
     InProcCrashReportCrashKind crashKind = static_cast<InProcCrashReportCrashKind>(
@@ -610,6 +629,7 @@ InProcCrashReporter::CreateReport(
     BeginJsonReport();
     EmitThreads(crashKind, context);
     EndJsonReport(signal, jsonEnabled, fd);
+    WriteMiniDump(miniDumpEnabled, miniDumpFd);
     EndConsoleReport();
 }
 
@@ -711,6 +731,8 @@ InProcCrashReporter::Initialize(
     m_crashKind = static_cast<LONG>(InProcCrashReportCrashKind::Unknown);
     m_stackOverflowTrace.available = 0;
     m_reportFilePath[0] = '\0';
+    m_miniDumpFilePath[0] = '\0';
+    m_createMiniDump = false;
 
     (void)CrashReportWatchdog::TryInitialize(settings.timeoutSeconds);
 
@@ -746,7 +768,19 @@ InProcCrashReporter::Initialize(
     // compact console logs without writing a JSON report file.
     if (settings.reportRootPath != nullptr && settings.reportRootPath[0] != '\0')
     {
-        m_lifecycle.Initialize(settings.reportRootPath, settings.maxFileCount);
+        m_lifecycle.Initialize(settings.reportRootPath, settings.maxFileCount, settings.createMiniDump);
+    }
+
+    if (settings.createMiniDump && m_lifecycle.IsReportFileOutputEnabled())
+    {
+        if (m_miniDumpWriter.Initialize(settings.miniDumpType))
+        {
+            m_createMiniDump = true;
+        }
+        else
+        {
+            InProcCrashReportLogInitializationFailure(".NET crash report minidump disabled: failed to initialize cdaclite");
+        }
     }
 
 #if defined(TARGET_IOS) || defined(TARGET_TVOS) || defined(TARGET_MACCATALYST)
@@ -2108,6 +2142,7 @@ InProcCrashReporter::EndJsonReport(
     {
         m_jsonWriter.WriteString("OSVersion", m_osVersion);
     }
+
     if (m_systemModel[0] != '\0')
     {
         m_jsonWriter.WriteString("SystemModel", m_systemModel);
@@ -2134,5 +2169,49 @@ InProcCrashReporter::EndJsonReport(
     else
     {
         (void)m_jsonWriter.Finish();
+    }
+}
+
+void
+InProcCrashReporter::WriteMiniDump(
+    bool miniDumpEnabled,
+    int fd)
+{
+    if (!miniDumpEnabled)
+    {
+        if (fd != -1)
+        {
+            close(fd);
+        }
+        return;
+    }
+
+    bool writeSucceeded = m_miniDumpWriter.WriteDump(fd);
+    bool closeSucceeded = close(fd) == 0;
+    bool miniDumpSucceeded = writeSucceeded && closeSucceeded;
+    m_lifecycle.FinishMiniDumpFile(miniDumpSucceeded, m_miniDumpFilePath);
+
+    m_consoleWriter.WriteBlank();
+    if (miniDumpSucceeded)
+    {
+        m_consoleWriter.WriteKeyValueStr("minidump", m_miniDumpFilePath);
+        m_consoleWriter.AppendStr("minidump regions: ");
+        m_consoleWriter.AppendDecimal(static_cast<uint64_t>(m_miniDumpWriter.RegionCount()));
+        if (m_miniDumpWriter.DroppedRegionCount() != 0)
+        {
+            m_consoleWriter.AppendStr(" (dropped ");
+            m_consoleWriter.AppendDecimal(static_cast<uint64_t>(m_miniDumpWriter.DroppedRegionCount()));
+            m_consoleWriter.AppendChar(')');
+        }
+        m_consoleWriter.EndLine();
+    }
+    else
+    {
+        m_consoleWriter.WriteLine("minidump: failed");
+        const char* reason = m_miniDumpWriter.FailureReason();
+        if (reason != nullptr && reason[0] != '\0')
+        {
+            m_consoleWriter.WriteKeyValueStr("minidump failure", reason);
+        }
     }
 }

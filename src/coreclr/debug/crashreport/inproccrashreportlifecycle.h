@@ -37,7 +37,8 @@ public:
     // initialized.
     bool Initialize(
         const char* rootPath,
-        int32_t maxFileCount);
+        int32_t maxFileCount,
+        bool createMiniDump);
 
     // Returns whether lifecycle-managed report files should be written. False when
     // initialization failed. Crash/signal-path safe: reads one bool.
@@ -53,12 +54,22 @@ public:
         size_t reportFilePathSize,
         int* fd);
 
+    bool PrepareMiniDumpFile(
+        SignalSafeFormatter* formatter,
+        char* miniDumpFilePath,
+        size_t miniDumpFilePathSize,
+        int* fd);
+
     // Finalizes the report opened by PrepareReportFile: on success renames the temp
     // file to its final reportFilePath, otherwise removes the temp file. Runs on the
     // crash/signal path: allocation-free and signal-safe.
     void FinishReportFile(
         bool succeeded,
         const char* reportFilePath);
+
+    void FinishMiniDumpFile(
+        bool succeeded,
+        const char* miniDumpFilePath);
 
 private:
     struct ReportPath
@@ -99,8 +110,23 @@ private:
         size_t reportFilePathSize,
         char* tempReportFilePath,
         size_t tempReportFilePathSize,
+        const char* fileExtension,
         uint64_t timestamp,
         uint32_t pid);
+
+    bool PrepareArtifactFile(
+        SignalSafeFormatter* formatter,
+        char* filePath,
+        size_t filePathSize,
+        char* tempFilePath,
+        size_t tempFilePathSize,
+        const char* fileExtension,
+        int* fd);
+
+    void FinishArtifactFile(
+        bool succeeded,
+        const char* filePath,
+        char* tempFilePath);
 
     // Appends component as a new path segment (inserting a single '/' separator as
     // needed). Allocation-free; used by both the init and crash paths.
@@ -144,6 +170,12 @@ private:
 
     char m_reportDirectory[CRASHREPORT_PATH_BUFFER_SIZE] = {};
     char m_tempReportFilePath[CRASHREPORT_PATH_BUFFER_SIZE] = {};
-    ReportPath m_cachedOldestReport = {};
+    char m_tempMiniDumpFilePath[CRASHREPORT_PATH_BUFFER_SIZE] = {};
+    static constexpr size_t MaxArtifactsPerCrash = 2;
+
+    ReportPath m_cachedOldestReports[MaxArtifactsPerCrash] = {};
+    size_t m_cachedOldestReportCount = 0;
+    size_t m_cachedOldestReportDeleteIndex = 0;
+    size_t m_artifactsPerCrash = 1;
     bool m_reportFileOutputEnabled = false;
 };

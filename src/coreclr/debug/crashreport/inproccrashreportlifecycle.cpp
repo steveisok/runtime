@@ -22,6 +22,7 @@ static const char CrashReportManagedRootDirectory[] = ".dotnet";
 static const char CrashReportManagedReportDirectory[] = "crash-reports";
 static const char CrashReportFilePrefix[] = "report-";
 static const char CrashReportFileExtension[] = ".crashreport.json";
+static const char CrashReportMiniDumpFileExtension[] = ".dmp";
 static const char CrashReportTempExtension[] = ".tmp";
 
 static const uint64_t NanosecondsPerSecond = 1000000000ull;
@@ -29,12 +30,20 @@ static const uint64_t NanosecondsPerSecond = 1000000000ull;
 bool
 InProcCrashReportLifecycle::Initialize(
     const char* rootPath,
-    int32_t maxFileCount)
+    int32_t maxFileCount,
+    bool createMiniDump)
 {
     m_reportFileOutputEnabled = false;
     m_reportDirectory[0] = '\0';
     m_tempReportFilePath[0] = '\0';
-    m_cachedOldestReport.value[0] = '\0';
+    m_tempMiniDumpFilePath[0] = '\0';
+    m_cachedOldestReportCount = 0;
+    m_cachedOldestReportDeleteIndex = 0;
+    m_artifactsPerCrash = createMiniDump ? MaxArtifactsPerCrash : 1;
+    for (size_t i = 0; i < MaxArtifactsPerCrash; i++)
+    {
+        m_cachedOldestReports[i].value[0] = '\0';
+    }
 
     if (!EstablishReportDirectory(rootPath))
     {
@@ -198,15 +207,33 @@ InProcCrashReportLifecycle::PruneExistingReports(int32_t maxFileCount)
 
     closedir(dir);
 
-    // A full kept set means the directory already holds maxFileCount reports, so
-    // the next crash report would exceed the bound: cache the oldest, and the
-    // crash path unlinks it before publishing the new report. Below the bound
-    // nothing is cached and the crash path deletes nothing.
-    if (keptCount == capacity)
+    // If the next crash would exceed the file bound, cache enough oldest artifacts
+    // for the crash path to unlink before publishing its JSON and optional dump.
+    size_t reportsToDelete = 0;
+    if (keptCount + m_artifactsPerCrash > capacity)
+    {
+        reportsToDelete = keptCount + m_artifactsPerCrash - capacity;
+        if (reportsToDelete > keptCount)
+        {
+            reportsToDelete = keptCount;
+        }
+        if (reportsToDelete > MaxArtifactsPerCrash)
+        {
+            reportsToDelete = MaxArtifactsPerCrash;
+        }
+    }
+
+    for (size_t i = 0; i < reportsToDelete; i++)
     {
         size_t oldestIndex = FindOldestReportIndex(kept, keptCount);
-        CrashReportStringUtils::CopyString(m_cachedOldestReport.value, sizeof(m_cachedOldestReport.value), kept[oldestIndex].path.value);
+        CrashReportStringUtils::CopyString(
+            m_cachedOldestReports[i].value,
+            sizeof(m_cachedOldestReports[i].value),
+            kept[oldestIndex].path.value);
+        kept[oldestIndex].timestamp = UINT64_MAX;
+        kept[oldestIndex].path.value[0] = '\0';
     }
+    m_cachedOldestReportCount = reportsToDelete;
 
     delete[] kept;
     return true;
@@ -219,13 +246,51 @@ InProcCrashReportLifecycle::PrepareReportFile(
     size_t reportFilePathSize,
     int* fd)
 {
-    if (formatter == nullptr || reportFilePath == nullptr || reportFilePathSize == 0 ||
+    return PrepareArtifactFile(
+        formatter,
+        reportFilePath,
+        reportFilePathSize,
+        m_tempReportFilePath,
+        sizeof(m_tempReportFilePath),
+        CrashReportFileExtension,
+        fd);
+}
+
+bool
+InProcCrashReportLifecycle::PrepareMiniDumpFile(
+    SignalSafeFormatter* formatter,
+    char* miniDumpFilePath,
+    size_t miniDumpFilePathSize,
+    int* fd)
+{
+    return PrepareArtifactFile(
+        formatter,
+        miniDumpFilePath,
+        miniDumpFilePathSize,
+        m_tempMiniDumpFilePath,
+        sizeof(m_tempMiniDumpFilePath),
+        CrashReportMiniDumpFileExtension,
+        fd);
+}
+
+bool
+InProcCrashReportLifecycle::PrepareArtifactFile(
+    SignalSafeFormatter* formatter,
+    char* filePath,
+    size_t filePathSize,
+    char* tempFilePath,
+    size_t tempFilePathSize,
+    const char* fileExtension,
+    int* fd)
+{
+    if (formatter == nullptr || filePath == nullptr || filePathSize == 0 ||
+        tempFilePath == nullptr || tempFilePathSize == 0 || fileExtension == nullptr ||
         fd == nullptr || m_reportDirectory[0] == '\0')
     {
         return false;
     }
 
-    reportFilePath[0] = '\0';
+    filePath[0] = '\0';
     *fd = -1;
 
     // Nanosecond-resolution timestamp keeps report names unique without a retry
@@ -239,24 +304,26 @@ InProcCrashReportLifecycle::PrepareReportFile(
         static_cast<uint64_t>(now.tv_nsec);
     uint32_t pid = static_cast<uint32_t>(GetCurrentProcessId());
 
-    // Delete the cached over-retention report (if any) before opening the temp
-    // file, freeing a slot so the completed set stays at the bound. A later write
+    // Delete one cached over-retention artifact (if any) before opening each temp
+    // file, freeing slots so the completed set stays at the bound. A later write
     // failure intentionally does not restore it.
-    if (m_cachedOldestReport.value[0] != '\0')
+    if (m_cachedOldestReportDeleteIndex < m_cachedOldestReportCount)
     {
-        unlink(m_cachedOldestReport.value);
+        unlink(m_cachedOldestReports[m_cachedOldestReportDeleteIndex].value);
+        m_cachedOldestReports[m_cachedOldestReportDeleteIndex].value[0] = '\0';
+        m_cachedOldestReportDeleteIndex++;
     }
 
-    if (!BuildReportPaths(formatter, reportFilePath, reportFilePathSize, m_tempReportFilePath, sizeof(m_tempReportFilePath), timestampNs, pid))
+    if (!BuildReportPaths(formatter, filePath, filePathSize, tempFilePath, tempFilePathSize, fileExtension, timestampNs, pid))
     {
         return false;
     }
 
-    int tempFd = open(m_tempReportFilePath, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    int tempFd = open(tempFilePath, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
     if (tempFd == -1)
     {
-        reportFilePath[0] = '\0';
-        m_tempReportFilePath[0] = '\0';
+        filePath[0] = '\0';
+        tempFilePath[0] = '\0';
         return false;
     }
 
@@ -269,7 +336,24 @@ InProcCrashReportLifecycle::FinishReportFile(
     bool succeeded,
     const char* reportFilePath)
 {
-    if (m_tempReportFilePath[0] == '\0')
+    FinishArtifactFile(succeeded, reportFilePath, m_tempReportFilePath);
+}
+
+void
+InProcCrashReportLifecycle::FinishMiniDumpFile(
+    bool succeeded,
+    const char* miniDumpFilePath)
+{
+    FinishArtifactFile(succeeded, miniDumpFilePath, m_tempMiniDumpFilePath);
+}
+
+void
+InProcCrashReportLifecycle::FinishArtifactFile(
+    bool succeeded,
+    const char* filePath,
+    char* tempFilePath)
+{
+    if (tempFilePath == nullptr || tempFilePath[0] == '\0')
     {
         return;
     }
@@ -283,16 +367,16 @@ InProcCrashReportLifecycle::FinishReportFile(
     // errno leaves the destination state unknown, so decline rather than risk a
     // replace. The collision-resistant final name (nanosecond timestamp plus pid)
     // keeps the residual TOCTOU window benign. On any failure the temp is removed.
-    if (succeeded && reportFilePath != nullptr && reportFilePath[0] != '\0' &&
-        access(reportFilePath, F_OK) != 0 && errno == ENOENT &&
-        rename(m_tempReportFilePath, reportFilePath) == 0)
+    if (succeeded && filePath != nullptr && filePath[0] != '\0' &&
+        access(filePath, F_OK) != 0 && errno == ENOENT &&
+        rename(tempFilePath, filePath) == 0)
     {
-        m_tempReportFilePath[0] = '\0';
+        tempFilePath[0] = '\0';
         return;
     }
 
-    unlink(m_tempReportFilePath);
-    m_tempReportFilePath[0] = '\0';
+    unlink(tempFilePath);
+    tempFilePath[0] = '\0';
 }
 
 bool
@@ -302,6 +386,7 @@ InProcCrashReportLifecycle::BuildReportPaths(
     size_t reportFilePathSize,
     char* tempReportFilePath,
     size_t tempReportFilePathSize,
+    const char* fileExtension,
     uint64_t timestamp,
     uint32_t pid)
 {
@@ -318,7 +403,7 @@ InProcCrashReportLifecycle::BuildReportPaths(
         return false;
     }
 
-    if (!CrashReportStringUtils::AppendString(reportFilePath, reportFilePathSize, &pos, CrashReportFileExtension))
+    if (!CrashReportStringUtils::AppendString(reportFilePath, reportFilePathSize, &pos, fileExtension))
     {
         return false;
     }
@@ -488,13 +573,15 @@ InProcCrashReportLifecycle::TryParseReportName(
 
     size_t prefixLength = sizeof(CrashReportFilePrefix) - 1;
     size_t extensionLength = sizeof(CrashReportFileExtension) - 1;
+    size_t miniDumpExtensionLength = sizeof(CrashReportMiniDumpFileExtension) - 1;
+    size_t shortestExtensionLength = miniDumpExtensionLength < extensionLength ? miniDumpExtensionLength : extensionLength;
 
     // The shortest name this function can accept is the prefix, a single
     // timestamp digit, the '-' separator, a single pid digit, and the extension.
     // "0-0" encodes that minimal timestamp-separator-pid core. Reject anything
     // shorter up front so we never walk the per-part parse for a name that cannot
     // possibly match.
-    size_t minimumLength = prefixLength + (sizeof("0-0") - 1) + extensionLength;
+    size_t minimumLength = prefixLength + (sizeof("0-0") - 1) + shortestExtensionLength;
     if (strlen(name) < minimumLength)
     {
         return false;
@@ -525,11 +612,18 @@ InProcCrashReportLifecycle::TryParseReportName(
     }
     current = end;
 
-    if (strncmp(current, CrashReportFileExtension, extensionLength) != 0)
+    if (strncmp(current, CrashReportFileExtension, extensionLength) == 0)
+    {
+        current += extensionLength;
+    }
+    else if (strncmp(current, CrashReportMiniDumpFileExtension, miniDumpExtensionLength) == 0)
+    {
+        current += miniDumpExtensionLength;
+    }
+    else
     {
         return false;
     }
-    current += extensionLength;
 
     if (*current != '\0')
     {

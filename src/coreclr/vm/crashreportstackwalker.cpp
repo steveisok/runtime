@@ -96,6 +96,8 @@ static bool TryParseCrashReportConfigurationInteger(CLRConfigNoCache config, int
 // Parses configuration during CrashReportConfigure initialization. This is not
 // async-signal-safe and must not be called from the crash-reporting path.
 static int GetCrashReportTimeoutSeconds();
+static bool GetCrashReportMiniDumpEnabled();
+static InProcCrashReportMiniDumpType GetCrashReportMiniDumpType();
 
 static
 void
@@ -657,6 +659,50 @@ GetCrashReportMaxFileCount()
     return maxFileCount;
 }
 
+static
+bool
+GetCrashReportMiniDumpEnabled()
+{
+    CLRConfigNoCache miniDumpCfg = CLRConfigNoCache::Get("CrashReportMiniDump", /*noprefix*/ false, &getenv);
+    if (!miniDumpCfg.IsSet())
+    {
+        return false;
+    }
+
+    int enabled;
+    return TryParseCrashReportConfigurationInteger(miniDumpCfg, 0, 1, &enabled) && enabled == 1;
+}
+
+static
+InProcCrashReportMiniDumpType
+GetCrashReportMiniDumpType()
+{
+    CLRConfigNoCache dumpTypeCfg = CLRConfigNoCache::Get("DbgMiniDumpType", /*noprefix*/ false, &getenv);
+    if (!dumpTypeCfg.IsSet())
+    {
+        return InProcCrashReportMiniDumpType::Mini;
+    }
+
+    int dumpType;
+    if (!TryParseCrashReportConfigurationInteger(dumpTypeCfg, 1, 4, &dumpType))
+    {
+        InProcCrashReportLogInitializationFailure(".NET crash report minidump using Mini: invalid DbgMiniDumpType");
+        return InProcCrashReportMiniDumpType::Mini;
+    }
+
+    if (dumpType == 2)
+    {
+        return InProcCrashReportMiniDumpType::WithHeap;
+    }
+
+    if (dumpType != 1)
+    {
+        InProcCrashReportLogInitializationFailure(".NET crash report minidump using Mini: unsupported DbgMiniDumpType for in-proc crash reports");
+    }
+
+    return InProcCrashReportMiniDumpType::Mini;
+}
+
 // Parses configuration during CrashReportConfigure initialization. This is not
 // async-signal-safe and must not be called from the crash-reporting path.
 // DOTNET_CrashReportTimeoutSeconds is a seconds-based watchdog knob: unset,
@@ -711,13 +757,28 @@ CrashReportConfigure()
     CLRConfigNoCache crashReportRootPathCfg = CLRConfigNoCache::Get("CrashReportRootPath", /*noprefix*/ false, &getenv);
     const char* crashReportRootPath = crashReportRootPathCfg.IsSet() ? crashReportRootPathCfg.AsString() : nullptr;
     bool rootConfigured = crashReportRootPath != nullptr && crashReportRootPath[0] != '\0';
+    bool miniDumpEnabled = GetCrashReportMiniDumpEnabled();
+    int32_t maxFileCount = CRASHREPORT_DEFAULT_MAX_FILE_COUNT;
 
     InProcCrashReporterSettings settings = {};
     if (rootConfigured)
     {
         settings.reportRootPath = crashReportRootPath;
-        settings.maxFileCount = GetCrashReportMaxFileCount();
+        maxFileCount = GetCrashReportMaxFileCount();
+        settings.maxFileCount = maxFileCount;
     }
+    if (miniDumpEnabled && !rootConfigured)
+    {
+        InProcCrashReportLogInitializationFailure(".NET crash report minidump disabled: CrashReportRootPath is required");
+        miniDumpEnabled = false;
+    }
+    if (miniDumpEnabled && maxFileCount < 2)
+    {
+        InProcCrashReportLogInitializationFailure(".NET crash report minidump disabled: CrashReportMaxFileCount must be at least 2");
+        miniDumpEnabled = false;
+    }
+    settings.createMiniDump = miniDumpEnabled;
+    settings.miniDumpType = GetCrashReportMiniDumpType();
 
     settings.timeoutSeconds = GetCrashReportTimeoutSeconds();
     settings.isManagedThreadCallback = CrashReportIsCurrentThreadManaged;

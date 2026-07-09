@@ -31,6 +31,12 @@ enum class InProcCrashReportCrashKind : uint32_t
     StackOverflow = 1,
 };
 
+enum class InProcCrashReportMiniDumpType : uint32_t
+{
+    Mini = 1,
+    WithHeap = 2,
+};
+
 using InProcCrashReportIsManagedThreadCallback = bool (*)();
 
 using InProcCrashReportFrameCallback = void (*)(
@@ -80,6 +86,8 @@ struct InProcCrashReporterSettings
     InProcCrashReportModuleInfoCallback moduleInfoCallback;
     uint32_t frameLimitPerThread;
     int32_t maxFileCount;
+    bool createMiniDump;
+    InProcCrashReportMiniDumpType miniDumpType;
 };
 
 // Free-function entry point used by the runtime to wire the in-proc crash
