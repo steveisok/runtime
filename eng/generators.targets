@@ -78,7 +78,7 @@
   </ItemGroup>
 
   <Target Name="ConfigureGenerators"
-          DependsOnTargets="ConfigureLibraryImportGenerator"
+          DependsOnTargets="ConfigureLibraryImportGenerator;PrepareDownlevelLibraryImportGenerator"
           BeforeTargets="CoreCompile" />
 
   <!-- Microsoft.Interop.LibraryImportGenerator -->
@@ -89,6 +89,30 @@
     <PropertyGroup>
         <LibraryImportGenerator_UseMarshalType>true</LibraryImportGenerator_UseMarshalType>
     </PropertyGroup>
+  </Target>
+
+  <!-- The downlevel LibraryImport generator depends on Microsoft.Interop.SourceGeneration.
+       Roslyn resolves analyzer dependencies from the generator's directory, not from other
+       /analyzer paths, so ensure the shared dependency is colocated before compilation. -->
+  <Target Name="PrepareDownlevelLibraryImportGenerator"
+          Condition="'@(EnabledGenerators)' != '' and @(EnabledGenerators->AnyHaveMetadataValue('Identity', 'DownlevelLibraryImportGenerator'))"
+          DependsOnTargets="ResolveProjectReferences">
+    <PropertyGroup>
+      <!-- Roslyn's shared compiler server can cache analyzer dependency load failures across
+           compilations. The downlevel generator has a private companion assembly that must be
+           colocated before use, so run these compilations in-proc after the copy below. -->
+      <UseSharedCompilation>false</UseSharedCompilation>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <_DownlevelLibraryImportGeneratorAnalyzer Include="@(Analyzer->WithMetadataValue('FileName', 'Microsoft.Interop.LibraryImportGenerator.Downlevel'))" />
+      <_MicrosoftInteropSourceGenerationAnalyzer Include="@(Analyzer->WithMetadataValue('FileName', 'Microsoft.Interop.SourceGeneration'))" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(_MicrosoftInteropSourceGenerationAnalyzer)"
+          DestinationFolder="%(_DownlevelLibraryImportGeneratorAnalyzer.RootDir)%(_DownlevelLibraryImportGeneratorAnalyzer.Directory)"
+          SkipUnchangedFiles="true"
+          Condition="'@(_DownlevelLibraryImportGeneratorAnalyzer)' != '' and '@(_MicrosoftInteropSourceGenerationAnalyzer)' != ''" />
   </Target>
 
   <Import Project="$(LibrariesProjectRoot)System.Runtime.InteropServices\gen\LibraryImportGenerator\Microsoft.Interop.LibraryImportGenerator.props" />
