@@ -23,6 +23,7 @@ namespace contracts
 
         const int MaxBlocks = 1024;         // guard against corrupt block lists
         const uint32_t MaxAssemblies = 1u << 20;
+        const uint32_t ModuleEmit = 4096;
     }
 
     int ForEachModule(const Target& target, ModuleCallback callback, void* context)
@@ -222,6 +223,10 @@ namespace contracts
                 uint8_t cor[kCor20HeaderSize];
                 if (target.ReadBuffer(corAddr, cor, sizeof(cor)))
                 {
+                    // NOTE: the ECMA metadata blob (COR20 MetaData directory @+8/+12) is intentionally
+                    // NOT captured. It is image-backed and the analyzer re-reads it from the on-disk
+                    // assembly (matching how real minidumps work), so dumping it here would only bloat
+                    // the dump (System.Private.CoreLib metadata is several MB).
                     uint32_t r2rRVA = 0, r2rSize = 0;
                     memcpy(&r2rRVA, cor + 64, sizeof(r2rRVA));
                     memcpy(&r2rSize, cor + 68, sizeof(r2rSize));
@@ -310,55 +315,86 @@ namespace contracts
         void EmitModuleExtras(void* context, uint64_t moduleAddr)
         {
             ModuleImageState* state = (ModuleImageState*)context;
-            const Target& target = *state->target;
-
-            data::Module module;
-            if (!target.TryRead(moduleAddr, module))
+            if (EmitModuleImageRegions(*state->target, moduleAddr))
             {
-                return;
+                state->emitted++;
             }
+        }
+    }
 
-            // Emit the module's metadata-locator chain and the ECMA metadata bytes.
-            EmitModuleMetadataChain(target, module);
+    bool EmitModuleImageRegions(const Target& target, uint64_t moduleAddr)
+    {
+        data::Module module;
+        if (moduleAddr == 0 || !target.TryRead(moduleAddr, module))
+        {
+            return false;
+        }
+        target.EmitMemory(moduleAddr, ModuleEmit);
 
-            // If the module has an in-memory symbol stream, capture its buffer (ILoader.TryGetSymbolStream).
-            // In-memory PDBs have no on-disk backing, so they must be in the dump.
-            if (module.GrowableSymbolStream != 0)
+        // Capture the module simple-name UTF8 string (ILoader.GetSimpleName). The reader uses it to
+        // locate the on-disk assembly for image fallback, so it must be in the dump even though the
+        // bulk ECMA metadata is not. Emit up to the NUL terminator (bounded).
+        if (module.SimpleName != 0)
+        {
+            uint8_t name[256];
+            if (target.ReadBuffer(module.SimpleName, name, sizeof(name)))
             {
-                data::CGrowableSymbolStream symStream;
-                if (target.TryRead(module.GrowableSymbolStream, symStream) &&
-                    symStream.Buffer != 0 && (uint32_t)symStream.Size != 0)
+                uint32_t len = 0;
+                while (len < sizeof(name) && name[len] != 0)
                 {
-                    target.EmitMemory(symStream.Buffer, (uint32_t)symStream.Size);
-                    state->emitted++;
+                    len++;
                 }
+                target.EmitMemory(module.SimpleName, len < sizeof(name) ? len + 1 : (uint32_t)sizeof(name));
             }
+        }
 
-            // ReadyToRun modules: resolving an R2R frame (ExecutionManager.GetCodeBlockHandle ->
-            // ReadyToRunJitManager) reads ReadyToRunInfo -> ReadyToRunHeader / DebugInfoSection.
-            // The RuntimeFunctions table it indexes lives in the on-disk image, but these runtime
-            // locator structs must be in the dump.
-            if (module.ReadyToRunInfo != 0)
+        // Emit the module's metadata-locator chain and the ECMA metadata bytes.
+        EmitModuleMetadataChain(target, module);
+
+        // If the module has an in-memory symbol stream, capture its buffer (ILoader.TryGetSymbolStream).
+        // In-memory PDBs have no on-disk backing, so they must be in the dump.
+        if (module.GrowableSymbolStream != 0)
+        {
+            data::CGrowableSymbolStream symStream;
+            if (target.TryRead(module.GrowableSymbolStream, symStream) &&
+                symStream.Buffer != 0 && (uint32_t)symStream.Size != 0)
             {
-                data::ReadyToRunInfo r2r;
-                if (target.TryRead(module.ReadyToRunInfo, r2r))
+                target.EmitMemory(symStream.Buffer, (uint32_t)symStream.Size);
+            }
+        }
+
+        // ReadyToRun modules: resolving an R2R frame (ExecutionManager.GetCodeBlockHandle ->
+        // ReadyToRunJitManager) reads ReadyToRunInfo -> ReadyToRunHeader / DebugInfoSection.
+        // The RuntimeFunctions table it indexes lives in the on-disk image, but these runtime
+        // locator structs must be in the dump.
+        if (module.ReadyToRunInfo != 0)
+        {
+            data::ReadyToRunInfo r2r;
+            if (target.TryRead(module.ReadyToRunInfo, r2r))
+            {
+                if (r2r.ReadyToRunHeader != 0)
                 {
-                    if (r2r.ReadyToRunHeader != 0)
-                    {
-                        target.EmitStruct("ReadyToRunHeader", r2r.ReadyToRunHeader);
-                    }
-                    if (r2r.DebugInfoSection != 0)
-                    {
-                        target.EmitStruct("ImageDataDirectory", r2r.DebugInfoSection);
-                    }
-                    if (r2r.CompositeInfo != 0 && r2r.CompositeInfo != module.ReadyToRunInfo)
-                    {
-                        target.EmitStruct("ReadyToRunInfo", r2r.CompositeInfo);
-                    }
-                    state->emitted++;
+                    target.EmitStruct("ReadyToRunHeader", r2r.ReadyToRunHeader);
+                }
+                if (r2r.DebugInfoSection != 0)
+                {
+                    target.EmitStruct("ImageDataDirectory", r2r.DebugInfoSection);
+                }
+                // IsStubCodeBlockThunk reads the DelayLoadMethodCallThunks IMAGE_DATA_DIRECTORY.
+                if (r2r.DelayLoadMethodCallThunks != 0)
+                {
+                    target.EmitStruct("ImageDataDirectory", r2r.DelayLoadMethodCallThunks);
+                }
+                // NOTE: the RUNTIME_FUNCTION[] table is NOT bulk-emitted here. It is image-backed and
+                // large; the stack scan (EnumR2RMethodDesc) emits only the entries the reader's binary
+                // search + funclet walk actually touch for each on-stack IP.
+                if (r2r.CompositeInfo != 0 && r2r.CompositeInfo != module.ReadyToRunInfo)
+                {
+                    target.EmitStruct("ReadyToRunInfo", r2r.CompositeInfo);
                 }
             }
         }
+        return true;
     }
 
     int EnumerateModuleRegions(const Target& target, RegionCallback sink, void* sinkContext)

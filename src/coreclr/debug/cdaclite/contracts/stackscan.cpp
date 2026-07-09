@@ -18,6 +18,7 @@
 //*****************************************************************************
 
 #include "stackscan.h"
+#include "loader.h"
 #include "runtimetypes.h"
 
 #include <set>
@@ -506,6 +507,7 @@ namespace contracts
                 if (m_target.TryReadFieldPointer(mtPtr, "MethodTable", "Module", module) && module != 0)
                 {
                     m_target.EmitStruct("Module", module);
+                    m_target.EmitMemory(module, 4096);
                 }
                 // EEClassOrCanonMT: low bits are a discriminator (0 = EEClass, 1 = canonical MethodTable).
                 uint64_t eeClassOrCanon = 0;
@@ -732,12 +734,91 @@ namespace contracts
             // whole EntryPointToMethodDescMap -- it can be MBs; the DAC likewise only probes it
             // (dotnet/diagnostics#5910). The RUNTIME_FUNCTION table is image-backed, so it is read
             // (from the live target) but not emitted.
+            // Emits exactly the RUNTIME_FUNCTION entries the reader touches while resolving `rva`,
+            // so we can drop the (large, image-backed) full-table capture. Mirrors the reader's
+            // RuntimeFunctionLookup.TryGetRuntimeFunctionIndexForAddress (BinaryThenLinearSearch,
+            // threshold 10) plus the AdjustRuntimeFunctionToMethodStart funclet walk-back window.
+            // Sets 'index' to the found function and returns false if no function contains rva.
+            bool EmitReaderRuntimeFunctionReads(uint64_t rfTable, uint32_t rfStride, uint32_t count,
+                                                uint32_t rva, uint32_t& index)
+            {
+                index = 0;
+                if (count == 0)
+                {
+                    return false;
+                }
+                auto beginOf = [&](uint32_t i) -> uint32_t {
+                    uint32_t b = 0;
+                    m_target.TryReadUInt32(rfTable + (uint64_t)i * rfStride, b);
+                    return b;
+                };
+                auto emit = [&](uint32_t i) {
+                    if (i < count)
+                    {
+                        m_target.EmitMemory(rfTable + (uint64_t)i * rfStride, rfStride);
+                    }
+                };
+
+                const uint32_t BinarySearchThreshold = 10;
+                uint32_t start = 0;
+                uint32_t end = count - 1;
+                while (end - start > BinarySearchThreshold)
+                {
+                    uint32_t middle = start + (end - start) / 2;
+                    emit(middle);
+                    if (rva < beginOf(middle))
+                    {
+                        if (middle == 0) break;
+                        end = middle - 1;
+                    }
+                    else
+                    {
+                        start = middle;
+                    }
+                }
+
+                bool found = false;
+                uint32_t result = start;
+                for (uint32_t i = start; i <= end; i++)
+                {
+                    emit(i);
+                    emit(i + 1); // match() also reads func[i+1]
+                    bool nextOk = (i >= count - 1) || (rva < beginOf(i + 1));
+                    if (rva >= beginOf(i) && nextOk)
+                    {
+                        result = i;
+                        found = true;
+                        break;
+                    }
+                    if (i == 0xFFFFFFFFu) break;
+                }
+
+                // Funclet walk-back window: AdjustRuntimeFunctionToMethodStart walks the index down
+                // to the enclosing function. Bound it as the DAC does.
+                const uint32_t MaxFuncletWalk = 16;
+                uint32_t lo = result > MaxFuncletWalk ? result - MaxFuncletWalk : 0;
+                for (uint32_t i = lo; i <= result + 1 && i < count; i++)
+                {
+                    emit(i);
+                }
+
+                index = result;
+                return found;
+            }
+
             uint64_t EnumR2RMethodDesc(const data::RangeSection& rangeSection, uint64_t ip)
             {
                 if (rangeSection.R2RModule == 0)
                 {
                     return 0;
                 }
+                // Emit the R2R module the reader resolves from this RangeSection
+                // (ReadyToRunJitManager.GetReadyToRunInfo reads Module -> ReadyToRunInfo). The
+                // whole-AppDomain module enumeration may not have reached this module, so capture
+                // it here for every R2R frame on the stack -- otherwise the reader's stack walk
+                // fails constructing Data.Module for the crashing IP.
+                EmitModuleImageRegions(m_target, rangeSection.R2RModule);
+
                 data::Module module;
                 if (!m_target.TryRead(rangeSection.R2RModule, module) || module.ReadyToRunInfo == 0)
                 {
@@ -767,6 +848,50 @@ namespace contracts
                 {
                     return 0;
                 }
+
+                // Capture only the RUNTIME_FUNCTION entries the reader's search + funclet walk read
+                // (the full table is image-backed and multi-MB; not bulk-emitted anymore).
+                uint32_t readerIndex = 0;
+                EmitReaderRuntimeFunctionReads(r2r.RuntimeFunctions, rfStride, r2r.NumRuntimeFunctions, rva, readerIndex);
+
+#if defined(TARGET_ARM64)
+                // Emit the frame's .xdata unwind info. The ARM64 unwinder (ARM64Unwinder.
+                // VirtualUnwindFull) reads the header word at imageBase+UnwindData, then the epilog
+                // scope + unwind code words. This image-backed blob is served from disk for the DAC,
+                // but an in-proc mobile dump has no on-disk image, so capture exactly what the
+                // unwinder reads for the runtime function covering this IP.
+                {
+                    uint32_t unwindRva = 0;
+                    if (m_target.TryReadFieldUInt32(r2r.RuntimeFunctions + (uint64_t)index * rfStride,
+                                                    "RuntimeFunction", "UnwindData", unwindRva))
+                    {
+                        uint64_t unwindAddr = imageBase + unwindRva;
+                        uint32_t headerWord = 0;
+                        if (m_target.TryReadUInt32(unwindAddr, headerWord))
+                        {
+                            uint64_t p = unwindAddr + 4;
+                            uint32_t unwindWords = (headerWord >> 27) & 31;
+                            uint32_t epilogScopeCount = (headerWord >> 22) & 31;
+                            if (epilogScopeCount == 0 && unwindWords == 0)
+                            {
+                                uint32_t ext = 0;
+                                if (m_target.TryReadUInt32(p, ext))
+                                {
+                                    p += 4;
+                                    unwindWords = (ext >> 16) & 0xff;
+                                    epilogScopeCount = ext & 0xffff;
+                                }
+                            }
+                            if ((headerWord & (1u << 21)) != 0)
+                            {
+                                epilogScopeCount = 0;
+                            }
+                            uint64_t blobEnd = p + 4ull * epilogScopeCount + 4ull * unwindWords;
+                            m_target.EmitMemory(unwindAddr, (uint32_t)(blobEnd - unwindAddr));
+                        }
+                    }
+                }
+#endif // TARGET_ARM64
 
                 uint64_t compositeInfo = r2r.CompositeInfo != 0 ? r2r.CompositeInfo : module.ReadyToRunInfo;
                 uint64_t mapAddr = 0;

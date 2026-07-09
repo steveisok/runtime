@@ -159,6 +159,7 @@ namespace data
         CDAC_PTR(Assembly)
         CDAC_PTR(PEAssembly)
         CDAC_PTR(LoaderAllocator)
+        CDAC_OPT_PTR(SimpleName)           // module simple-name UTF8 string (ILoader.GetSimpleName)
         CDAC_OPT_PTR(GrowableSymbolStream) // in-memory symbol (PDB) stream, if any
         CDAC_OPT_PTR(ReadyToRunInfo)       // ReadyToRun modules: the R2R runtime info
     };
@@ -170,6 +171,7 @@ namespace data
         CDAC_OPT_PTR(CompositeInfo)
         CDAC_OPT_PTR(ReadyToRunHeader)
         CDAC_OPT_PTR(DebugInfoSection)
+        CDAC_OPT_PTR(DelayLoadMethodCallThunks) // IMAGE_DATA_DIRECTORY probed by IsStubCodeBlockThunk
         CDAC_OPT_PTR(RuntimeFunctions)      // RUNTIME_FUNCTION[] table (in the R2R image)
         CDAC_U32(NumRuntimeFunctions)
     };

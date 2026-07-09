@@ -29,6 +29,13 @@ namespace contracts
     // AppDomain could not be located.
     int ForEachModule(const Target& target, ModuleCallback callback, void* context);
 
+    // Emits the memory the managed reader touches for a single Module: the Module struct
+    // itself, its metadata-locator chain (PEAssembly -> PEImage -> PEImageLayout + PE headers),
+    // any in-memory symbol stream, and its ReadyToRun locator structs. Returns false (a no-op)
+    // if the Module cannot be read. Used both by the whole-AppDomain module enumeration and by
+    // the stack scan, which reaches an R2R frame's module directly via its RangeSection.
+    bool EmitModuleImageRegions(const Target& target, uint64_t moduleAddr);
+
     // Walks AppDomain -> AssemblyList -> Assembly -> Module -> PEImageLayout and
     // reports each module's loaded image range ([Base, Base+Size)) with kind
     // "module-image". Returns the number of regions reported, or -1 if the

@@ -11,25 +11,19 @@
 
 #include <cstring>
 
+#if defined(TARGET_APPLE)
+#include <mach-o/loader.h>
+#include <mach-o/nlist.h>
+#endif
+
 namespace cdac
 {
 namespace contracts
 {
     namespace
     {
-        // Emits the runtime module's PE headers + export directory. A reader (ClrMD) resolves the
-        // DotNetRuntimeContractDescriptor export from the module's export table to bootstrap; that
-        // memory is NOT part of a MiniDumpNormal's default module capture. cdac-lite emits it
-        // explicitly so it is self-sufficient (and createdump can exclude the legacy DAC via
-        // MiniDumpWithoutAuxiliaryState). Returns the number of regions emitted.
-        int EmitModuleExportDirectory(const Target& target, RegionCallback sink, void* sinkContext)
+        int EmitPEExportDirectory(const Target& target, RegionCallback sink, void* sinkContext, uint64_t clrBase)
         {
-            uint64_t clrBase = target.ClrBase();
-            if (clrBase == 0)
-            {
-                return 0;
-            }
-
             uint8_t dos[0x40];
             if (!target.ReadBuffer(clrBase, dos, sizeof(dos)) || dos[0] != 'M' || dos[1] != 'Z')
             {
@@ -64,6 +58,133 @@ namespace contracts
                 emitted++;
             }
             return emitted;
+        }
+
+#if defined(TARGET_APPLE)
+        bool ReadMachOLoadCommand(const Target& target, uint64_t commandAddress, load_command& command)
+        {
+            return target.ReadBuffer(commandAddress, &command, sizeof(command)) &&
+                command.cmdsize >= sizeof(load_command);
+        }
+
+        uint64_t GetMachOAddressFromFileOffset(
+            const Target& target,
+            uint64_t clrBase,
+            const mach_header_64& header,
+            uint32_t fileOffset)
+        {
+            uint64_t commandAddress = clrBase + sizeof(mach_header_64);
+            for (uint32_t i = 0; i < header.ncmds; i++)
+            {
+                load_command command;
+                if (!ReadMachOLoadCommand(target, commandAddress, command))
+                {
+                    break;
+                }
+
+                if (command.cmd == LC_SEGMENT_64 && command.cmdsize >= sizeof(segment_command_64))
+                {
+                    segment_command_64 segment;
+                    if (!target.ReadBuffer(commandAddress, &segment, sizeof(segment)))
+                    {
+                        break;
+                    }
+
+                    if (fileOffset >= segment.fileoff &&
+                        fileOffset < segment.fileoff + segment.filesize)
+                    {
+                        return clrBase + fileOffset + segment.vmaddr - segment.fileoff;
+                    }
+                }
+
+                commandAddress += command.cmdsize;
+            }
+
+            return clrBase + fileOffset;
+        }
+
+        int EmitMachOExportDirectory(const Target& target, RegionCallback sink, void* sinkContext, uint64_t clrBase)
+        {
+            mach_header_64 header;
+            if (!target.ReadBuffer(clrBase, &header, sizeof(header)) || header.magic != MH_MAGIC_64)
+            {
+                return 0;
+            }
+
+            sink(sinkContext, "macho-headers", clrBase, sizeof(mach_header_64) + header.sizeofcmds);
+            int emitted = 1;
+
+            uint64_t commandAddress = clrBase + sizeof(mach_header_64);
+            for (uint32_t i = 0; i < header.ncmds; i++)
+            {
+                load_command command;
+                if (!ReadMachOLoadCommand(target, commandAddress, command))
+                {
+                    break;
+                }
+
+                if (command.cmd == LC_SYMTAB && command.cmdsize >= sizeof(symtab_command))
+                {
+                    symtab_command symtab;
+                    if (!target.ReadBuffer(commandAddress, &symtab, sizeof(symtab)))
+                    {
+                        break;
+                    }
+
+                    uint64_t symbolTableAddress = GetMachOAddressFromFileOffset(target, clrBase, header, symtab.symoff);
+                    uint64_t symbolTableSize = static_cast<uint64_t>(sizeof(nlist_64)) * symtab.nsyms;
+                    if (symbolTableAddress != 0 && symbolTableSize != 0)
+                    {
+                        sink(sinkContext, "macho-symtab", symbolTableAddress, symbolTableSize);
+                        emitted++;
+                    }
+
+                    uint64_t stringTableAddress = GetMachOAddressFromFileOffset(target, clrBase, header, symtab.stroff);
+                    if (stringTableAddress != 0 && symtab.strsize != 0)
+                    {
+                        sink(sinkContext, "macho-strtab", stringTableAddress, symtab.strsize);
+                        emitted++;
+                    }
+                }
+
+                commandAddress += command.cmdsize;
+            }
+
+            return emitted;
+        }
+#endif // TARGET_APPLE
+
+        // Emits the runtime module's headers + export/symbol directory. A reader (ClrMD) resolves
+        // the DotNetRuntimeContractDescriptor export from the module to bootstrap; that memory is
+        // NOT part of a MiniDumpNormal's default module capture. cdac-lite emits it explicitly so
+        // dumps are self-sufficient. Returns the number of regions emitted.
+        int EmitModuleExportDirectory(const Target& target, RegionCallback sink, void* sinkContext)
+        {
+            uint64_t clrBase = target.ClrBase();
+            if (clrBase == 0)
+            {
+                return 0;
+            }
+
+            uint32_t magic = 0;
+            if (!target.ReadBuffer(clrBase, &magic, sizeof(magic)))
+            {
+                return 0;
+            }
+
+            if ((magic & 0xFFFF) == ('M' | ('Z' << 8)))
+            {
+                return EmitPEExportDirectory(target, sink, sinkContext, clrBase);
+            }
+
+#if defined(TARGET_APPLE)
+            if (magic == MH_MAGIC_64)
+            {
+                return EmitMachOExportDirectory(target, sink, sinkContext, clrBase);
+            }
+#endif
+
+            return 0;
         }
     }
 
