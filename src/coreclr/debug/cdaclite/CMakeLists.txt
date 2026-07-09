@@ -13,6 +13,14 @@ set(CDACLITE_SOURCES
     enumerate.cpp
 )
 
+set(CDACLITE_COMMON_LIBRARIES
+    cdacgc
+    cdacdata
+    corguids
+    dbgutil
+    coreclrminipal
+)
+
 if(CLR_CMAKE_HOST_WIN32)
     add_definitions(-DFX_VER_INTERNALNAME_STR=cdaclite.dll)
 
@@ -35,6 +43,7 @@ else(CLR_CMAKE_HOST_WIN32)
 endif(CLR_CMAKE_HOST_WIN32)
 
 add_library_clr(cdaclite SHARED ${CDACLITE_SOURCES})
+add_library_clr(cdaclite_static STATIC ${CDACLITE_SOURCES})
 
 if(CLR_CMAKE_HOST_WIN32)
     add_dependencies(cdaclite cdaclite_def)
@@ -45,13 +54,7 @@ else(CLR_CMAKE_HOST_WIN32)
     set_property(TARGET cdaclite APPEND_STRING PROPERTY LINK_DEPENDS ${EXPORTS_FILE})
 endif(CLR_CMAKE_HOST_WIN32)
 
-set(CDACLITE_LIBRARIES
-    cdacgc
-    cdacdata
-    corguids
-    dbgutil
-    coreclrminipal
-)
+set(CDACLITE_LIBRARIES ${CDACLITE_COMMON_LIBRARIES})
 
 if(CLR_CMAKE_HOST_WIN32)
     list(APPEND CDACLITE_LIBRARIES
@@ -66,6 +69,7 @@ else(CLR_CMAKE_HOST_WIN32)
 endif(CLR_CMAKE_HOST_WIN32)
 
 target_link_libraries(cdaclite PRIVATE ${CDACLITE_LIBRARIES})
+target_link_libraries(cdaclite_static PUBLIC ${CDACLITE_COMMON_LIBRARIES})
 
 install_clr(TARGETS cdaclite DESTINATIONS . sharedFramework COMPONENT debug)
 

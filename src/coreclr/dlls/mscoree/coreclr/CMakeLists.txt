@@ -191,6 +191,7 @@ target_compile_definitions(coreclr_static PUBLIC CORECLR_EMBEDDED)
 
 if(FEATURE_INPROC_CRASHREPORT AND NOT CLR_CROSS_COMPONENTS_BUILD)
     target_sources(coreclr_static PRIVATE $<TARGET_OBJECTS:inproccrashreport>)
+    target_link_libraries(coreclr_static PRIVATE cdaclite_static)
 endif()
 
 if (TARGET cee_wks_gen)
