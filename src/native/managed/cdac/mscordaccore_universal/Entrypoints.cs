@@ -191,8 +191,6 @@ internal static class Entrypoints
             if (cdacHandle is null)
                 return HResults.E_INVALIDARG;
 
-            Contracts.CoreCLRContracts.ValidateForDataAccess(cdacHandle.Target, cdacHandle.ApiLock);
-
             object? legacyImpl = legacyImplPtr != IntPtr.Zero
                 ? ComInterfaceMarshaller<ISOSDacInterface>.ConvertToManaged((void*)legacyImplPtr)
                 : null;
@@ -462,8 +460,6 @@ internal static class Entrypoints
             },
             allocVirtual,
             [Contracts.CoreCLRContracts.Register]);
-
-        Contracts.CoreCLRContracts.ValidateForDataAccess(target, apiLock);
 
         object? legacyImpl = legacyImplPtr != IntPtr.Zero
             ? ComInterfaceMarshaller<ISOSDacInterface>.ConvertToManaged((void*)legacyImplPtr)

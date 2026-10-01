@@ -21,6 +21,8 @@
 #include "localeventchannel.cpp"
 #endif
 
+#include "suppliedeventchannel.cpp"
+
 #if TARGET_X86
 #include "i386/cordbregisterset.cpp"
 #include "i386/primitives.cpp"

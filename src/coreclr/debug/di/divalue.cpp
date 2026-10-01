@@ -361,7 +361,7 @@ ULONG32 CordbValue::GetSizeForType(CordbType * pType, BoxedValue boxing)
                                         // if it's not an unboxed value type (we're in the case
                                         // for compound types), then it's a reference
                                         // and we just want to return the size of a pointer
-                                        size = sizeof(void *);
+                                        size = pType->GetAppDomain()->GetProcess()->GetTargetPointerSize();
                                     }
                                     else
                                     {
@@ -742,7 +742,7 @@ CordbReferenceValue::CordbReferenceValue(CordbAppDomain *              pAppdomai
     memset(&m_info, 0, sizeof(m_info));
 
     LOG((LF_CORDB,LL_EVERYTHING,"CRV::CRV: this:0x%p\n",this));
-    m_size = sizeof(void *);
+    m_size = pAppdomain->GetProcess()->GetTargetPointerSize();
 
     // now instantiate the value home
     NewHolder<ValueHome> pHome(NULL);
@@ -778,7 +778,7 @@ CordbReferenceValue::CordbReferenceValue(CordbType * pType)
     memset(&m_info, 0, sizeof(m_info));
 
     // The only purpose of a literal value is to hold a RS literal value.
-    m_size = sizeof(void*);
+    m_size = pType->GetAppDomain()->GetProcess()->GetTargetPointerSize();
 
     // there is no value home for a literal
     m_valueHome.m_pHome = NULL;
@@ -798,7 +798,7 @@ bool CordbReferenceValue::CopyLiteralData(BYTE *pBuffer)
     if (m_isLiteral)
     {
         void *n = NULL;
-        memcpy(pBuffer, &n, sizeof(n));
+        memcpy(pBuffer, &n, m_size);
         return true;
     }
     else
@@ -977,7 +977,9 @@ HRESULT CordbReferenceValue::SetValue(CORDB_ADDRESS address)
 
 	EX_TRY
 	{
-        m_valueHome.m_pHome->SetValue(MemoryRange(&address, sizeof(void *)), m_type); // throws
+        m_valueHome.m_pHome->SetValue(
+            MemoryRange(&address, GetProcess()->GetTargetPointerSize()),
+            m_type); // throws
 	}
 	EX_CATCH_HRESULT(hr);
 
@@ -1200,7 +1202,9 @@ HRESULT CordbReferenceValue::DereferenceCommon(
 
             LOG((LF_CORDB, LL_INFO1000, "DereferenceInternal: type typedbyref\n"));
 
-            TargetBuffer remoteValue(pInfo->objRef, sizeof(void *));
+            TargetBuffer remoteValue(
+                pInfo->objRef,
+                pAppDomain->GetProcess()->GetTargetPointerSize());
             // Create the value for what this reference points
             // to.
             EX_TRY
@@ -1314,7 +1318,7 @@ HRESULT CordbReferenceValue::BuildFromGCHandle(
     {
         CORDB_ADDRESS _handleAddr;
         IfFailThrow(pProc->GetDAC()->GetHandleAddressFromVmHandle(gcHandle, &_handleAddr));
-        remoteValue.Init(_handleAddr, sizeof(void *));
+        remoteValue.Init(_handleAddr, pProc->GetTargetPointerSize());
     }
     EX_CATCH_HRESULT(hr);
     IfFailRet(hr);
@@ -1453,7 +1457,7 @@ void CordbReferenceValue::GetPointerData(CorElementType type, MemoryRange localV
         //                                          | object addr   |---------
         //                                           ---------------    |
 
-        _ASSERTE(localValue.Size() == sizeof(void *));
+        _ASSERTE(localValue.Size() == GetProcess()->GetTargetPointerSize());
         void * pObjRef = NULL;
         localCopy(&pObjRef, localValue);
         m_info.objRef = PTR_TO_CORDB_ADDRESS(pObjRef);
@@ -1465,7 +1469,8 @@ void CordbReferenceValue::GetPointerData(CorElementType type, MemoryRange localV
         // do some preinitialization in case we get an exception
         EX_TRY
         {
-            m_valueHome.m_pHome->GetValue(MemoryRange(&(m_info.objRef), sizeof(void*)));  // throws
+            m_valueHome.m_pHome->GetValue(
+                MemoryRange(&(m_info.objRef), GetProcess()->GetTargetPointerSize()));  // throws
         }
         EX_CATCH_HRESULT(hr);
         if (FAILED(hr))
@@ -1579,17 +1584,18 @@ void CordbReferenceValue::GetTypedByRefData(CordbProcess *            pProcess,
 //  Note: Throws
 void * CordbReferenceValue::GetObjectAddress(MemoryRange localValue)
 {
-    void * objectAddress;
+    void * objectAddress = nullptr;
     if (localValue.StartAddress() != NULL)
     {
         // the object ref comes from a local cached copy
-        _ASSERTE(localValue.Size() == sizeof(void *));
+        _ASSERTE(localValue.Size() == GetProcess()->GetTargetPointerSize());
         memcpy(&objectAddress, localValue.StartAddress(), localValue.Size());
     }
     else
     {
         _ASSERTE(m_valueHome.m_pHome != NULL);
-        m_valueHome.m_pHome->GetValue(MemoryRange(&objectAddress, sizeof(void *)));   // throws
+        m_valueHome.m_pHome->GetValue(
+            MemoryRange(&objectAddress, GetProcess()->GetTargetPointerSize()));   // throws
     }
     return objectAddress;
 } // CordbReferenceValue::GetObjectAddress
@@ -4164,7 +4170,7 @@ CordbHandleValue::CordbHandleValue(
     m_fCanBeValid = TRUE;
 
     m_handleType = handleType;
-    m_size = sizeof(void*);
+    m_size = pAppdomain->GetProcess()->GetTargetPointerSize();
 } // CordbHandleValue::CordbHandleValue
 
 //-----------------------------------------------------------------------------
@@ -4315,7 +4321,7 @@ HRESULT CordbHandleValue::RefreshHandleValue()
     _ASSERTE (type != ELEMENT_TYPE_MVAR);
 
     CordbProcess * pProcess = GetProcess();
-    void * objectAddress = NULL;
+    void * objectAddress = nullptr;
     CORDB_ADDRESS objectHandle = 0;
 
     EX_TRY
@@ -4323,7 +4329,9 @@ HRESULT CordbHandleValue::RefreshHandleValue()
         IfFailThrow(pProcess->GetDAC()->GetHandleAddressFromVmHandle(m_vmHandle, &objectHandle));
         if (type != ELEMENT_TYPE_TYPEDBYREF)
         {
-            pProcess->SafeReadBuffer(TargetBuffer(objectHandle, sizeof(void *)), (BYTE *)&objectAddress);
+            pProcess->SafeReadBuffer(
+                TargetBuffer(objectHandle, pProcess->GetTargetPointerSize()),
+                reinterpret_cast<BYTE *>(&objectAddress));
         }
     }
     EX_CATCH_HRESULT(hr);

@@ -3,7 +3,7 @@
 
 import type { JsModuleExports, EmscriptenModuleInternal, JsAsset, PromiseCompletionSource, VfsAsset } from "./types";
 
-import { dotnetAssert, dotnetInternals, dotnetBrowserHostExports, Module } from "./cross-module";
+import { dotnetApi, dotnetAssert, dotnetInternals, dotnetBrowserHostExports, Module } from "./cross-module";
 import { exit, runtimeState } from "./exit";
 import { createPromiseCompletionSource } from "./promise-completion-source";
 import { getIcuResourceName } from "./icu";
@@ -13,6 +13,24 @@ import { initPolyfillsLoader } from "./polyfills";
 import { validateEngineFeatures } from "./bootstrap";
 
 const runMainPromiseController = createPromiseCompletionSource<number>();
+
+type CoreClrDebuggerTransport = {
+    enqueueIncoming(data: string): boolean;
+    dequeueIncoming(count: number): string;
+    incomingByteCount(): number;
+    enqueueOutgoing(data: string): boolean;
+    dequeueOutgoing(count: number): string;
+    outgoingByteCount(): number;
+    pump(): number;
+};
+
+type CoreClrDebugGlobal = typeof globalThis & {
+    __coreclrWasmRuntimeApi?: typeof dotnetApi;
+    __coreclrWasmOnRuntimeInitialized?: (api: typeof dotnetApi) => void | Promise<void>;
+    __coreclrWasmRuntimeInitializing?: boolean;
+    __coreclrWasmPreloadMainAssembly?: boolean;
+    __coreclrWasmDebuggerTransport?: CoreClrDebuggerTransport;
+};
 
 type DownloadMode = "none" | "cacheOnly" | "intoMemory";
 let downloadMode: DownloadMode = "none";
@@ -42,6 +60,7 @@ export async function createRuntime(downloadOnly: boolean, httpCacheOnly: boolea
         // Fast path: download() already loaded everything into memory, create() just needs to init
         if (downloadedIntoMemory && !downloadOnly) {
             Module.runtimeKeepalivePush();
+            initializeCoreClrDebuggerTransport();
             await initializeCoreCLR();
 
             if (typeof Module.onDotnetReady === "function") {
@@ -163,6 +182,7 @@ export async function createRuntime(downloadOnly: boolean, httpCacheOnly: boolea
 
         if (!downloadOnly) {
             Module.runtimeKeepalivePush();
+            initializeCoreClrDebuggerTransport();
             await initializeCoreCLR();
         }
 
@@ -181,6 +201,22 @@ export async function createRuntime(downloadOnly: boolean, httpCacheOnly: boolea
             return;
         }
 
+        const coreClrDebugGlobal = globalThis as CoreClrDebugGlobal;
+        coreClrDebugGlobal.__coreclrWasmRuntimeApi = dotnetApi;
+        const mainAssemblyName = dotnetApi.getConfig().mainAssemblyName;
+        if (coreClrDebugGlobal.__coreclrWasmPreloadMainAssembly && mainAssemblyName) {
+            await dotnetApi.getAssemblyExports(mainAssemblyName);
+        }
+        const coreClrReady = coreClrDebugGlobal.__coreclrWasmOnRuntimeInitialized;
+        if (coreClrReady) {
+            console.info("[CoreCLR WASM] Initializing debugger before the runtime-ready pause.");
+            await coreClrReady(dotnetApi);
+        }
+        coreClrDebugGlobal.__coreclrWasmRuntimeInitializing = true;
+        console.info("[CoreCLR WASM] Runtime initialized; entering runtime-ready debugger pause.");
+        debugger;
+        coreClrDebugGlobal.__coreclrWasmRuntimeInitializing = false;
+
         if (typeof Module.onDotnetReady === "function") {
             await Module.onDotnetReady();
         }
@@ -194,6 +230,72 @@ export async function createRuntime(downloadOnly: boolean, httpCacheOnly: boolea
         runtimeState.creatingRuntime = false;
     }
 }
+
+function initializeCoreClrDebuggerTransport(): void {
+    const coreClrDebugGlobal = globalThis as CoreClrDebugGlobal;
+    if (coreClrDebugGlobal.__coreclrWasmDebuggerTransport) {
+        return;
+    }
+
+    const createByteQueue = () => {
+        const chunks: Uint8Array[] = [];
+        let firstChunkOffset = 0;
+        let byteCount = 0;
+        return {
+            enqueue(data: string): boolean {
+                const decoded = atob(data);
+                const bytes = new Uint8Array(decoded.length);
+                for (let i = 0; i < decoded.length; i++) {
+                    bytes[i] = decoded.charCodeAt(i);
+                }
+                chunks.push(bytes);
+                byteCount += bytes.length;
+                return true;
+            },
+            dequeue(count: number): string {
+                const length = Math.min(count, byteCount);
+                if (length === 0) {
+                    return "";
+                }
+                const result = new Uint8Array(length);
+                let resultOffset = 0;
+                while (resultOffset < length) {
+                    const chunk = chunks[0];
+                    const copyLength = Math.min(length - resultOffset, chunk.length - firstChunkOffset);
+                    result.set(chunk.subarray(firstChunkOffset, firstChunkOffset + copyLength), resultOffset);
+                    resultOffset += copyLength;
+                    firstChunkOffset += copyLength;
+                    byteCount -= copyLength;
+                    if (firstChunkOffset === chunk.length) {
+                        chunks.shift();
+                        firstChunkOffset = 0;
+                    }
+                }
+                let binary = "";
+                const Base64ChunkSize = 0x8000;
+                for (let i = 0; i < result.length; i += Base64ChunkSize) {
+                    binary += String.fromCharCode(...result.subarray(i, Math.min(i + Base64ChunkSize, result.length)));
+                }
+                return btoa(binary);
+            },
+            getByteCount(): number {
+                return byteCount;
+            }
+        };
+    };
+    const incomingDebuggerTransport = createByteQueue();
+    const outgoingDebuggerTransport = createByteQueue();
+    coreClrDebugGlobal.__coreclrWasmDebuggerTransport = {
+        enqueueIncoming: incomingDebuggerTransport.enqueue,
+        dequeueIncoming: incomingDebuggerTransport.dequeue,
+        incomingByteCount: incomingDebuggerTransport.getByteCount,
+        enqueueOutgoing: outgoingDebuggerTransport.enqueue,
+        dequeueOutgoing: outgoingDebuggerTransport.dequeue,
+        outgoingByteCount: outgoingDebuggerTransport.getByteCount,
+        pump: () => Module.ccall<number>("CoreClrWasmDebuggerTransportPump", "number", [], [])
+    };
+}
+
 export function abortStartup(reason: any): void {
     if (runtimeState.creatingRuntime) {
         nativeModulePromiseController.reject(reason);

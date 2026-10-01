@@ -28,6 +28,13 @@ typedef enum __TailCallFunctionType {
     StoreTailCallArgs = 2
 } TailCallFunctionType;
 
+#ifdef FEATURE_SINGLE_THREADED_DEBUGGER
+void PrepareSingleThreadedDebuggerPatch(Thread* thread, CONTEXT* context, CORDB_ADDRESS_TYPE* address);
+bool ShouldTriggerSingleThreadedDebuggerBreakpoint(DebuggerBreakpoint* breakpoint);
+bool SendSingleThreadedDebuggerBreakpointEvent(Thread* thread, DebuggerBreakpoint* breakpoint);
+bool SendSingleThreadedDebuggerStepperEvent(Thread* thread, DebuggerStepper* stepper);
+#endif
+
 // -------------------------------------------------------------------------
 //  DebuggerController routines
 // -------------------------------------------------------------------------
@@ -447,10 +454,12 @@ StackTraceTicket::StackTraceTicket(Thread * pThread)
 {
     _ASSERTE(pThread != NULL);
 
-    // If we're synchronized, the debugger should be stopped.
-    // That means all threads are synced and must be safe to take a stacktrace.
-    // Thus we don't even need to do a thread-specific check.
+    // If we're synchronized, the debugger should be stopped. The serialized
+    // browser debugger has no global suspension state; its only managed thread
+    // is synchronously stopped in the debugger callback.
+#ifndef FEATURE_SINGLE_THREADED_DEBUGGER
     _ASSERTE(g_pDebugger->IsStopped());
+#endif
 }
 
 // DebuggerUserBreakpoint has a special case of safety. See that ctor for details.
@@ -3178,6 +3187,13 @@ DPOSS_ACTION DebuggerController::DispatchPatchOrSingleStep(Thread *thread, CONTE
 
     CrstHolderWithState lockController(&g_criticalSection);
 
+#ifdef FEATURE_SINGLE_THREADED_DEBUGGER
+    if ((which & ST_PATCH) != 0)
+    {
+        PrepareSingleThreadedDebuggerPatch(thread, context, address);
+    }
+#endif
+
     TADDR originalAddress = 0;
 
 #ifdef FEATURE_METADATA_UPDATER
@@ -5245,6 +5261,13 @@ TP_RESULT DebuggerBreakpoint::TriggerPatch(DebuggerControllerPatch *patch,
 {
     LOG((LF_CORDB, LL_INFO10000, "DB::TP\n"));
 
+#ifdef FEATURE_SINGLE_THREADED_DEBUGGER
+    if (!ShouldTriggerSingleThreadedDebuggerBreakpoint(this))
+    {
+        return TPR_IGNORE;
+    }
+#endif
+
     return TPR_TRIGGER;
 }
 
@@ -5263,6 +5286,9 @@ bool DebuggerBreakpoint::SendEvent(Thread *thread, bool fIpChanged)
 
     LOG((LF_CORDB, LL_INFO10000, "DB::SE: in DebuggerBreakpoint's SendEvent\n"));
 
+#ifdef FEATURE_SINGLE_THREADED_DEBUGGER
+    return !fIpChanged && SendSingleThreadedDebuggerBreakpointEvent(thread, this);
+#else
     CONTEXT *context = g_pEEInterface->GetThreadFilterContext(thread);
 
     // If we got interrupted by SetIp, we just don't send the IPC event. Our triggers are still
@@ -5275,6 +5301,7 @@ bool DebuggerBreakpoint::SendEvent(Thread *thread, bool fIpChanged)
 
     // Controller is still alive, will fire if we hit the breakpoint again.
     return false;
+#endif
 }
 
 #ifdef FEATURE_INTERPRETER
@@ -8001,7 +8028,7 @@ void DebuggerStepper::TriggerMethodEnter(Thread * thread,
     // the assert if we end up in the method we started in (which could happen if we trace call
     // instructions before the JMC probe).
     // m_StepInStartMethod may be null (if this step-in didn't start from managed code).
-#if defined(TARGET_ARM64) && defined(__APPLE__)
+#if (defined(TARGET_ARM64) && defined(__APPLE__)) || defined(FEATURE_SINGLE_THREADED_DEBUGGER)
     LOG((LF_CORDB, LL_INFO10000, "DebuggerStepper::TriggerMethodEnter: Consistency_check_MSGF not needed because we skip setting breakpoints in certain patches on arm64-macOS\n"));
 #else
     if ((m_StepInStartMethod != pDesc) &&
@@ -8396,6 +8423,9 @@ bool DebuggerStepper::SendEvent(Thread *thread, bool fIpChanged)
     _ASSERTE(m_fReadyToSend);
     _ASSERTE(GetThreadNULLOk() == thread);
 
+#ifdef FEATURE_SINGLE_THREADED_DEBUGGER
+    return SendSingleThreadedDebuggerStepperEvent(thread, this);
+#else
     CONTEXT *context = g_pEEInterface->GetThreadFilterContext(thread);
     _ASSERTE(!ISREDIRECTEDTHREAD(thread));
 
@@ -8411,6 +8441,7 @@ bool DebuggerStepper::SendEvent(Thread *thread, bool fIpChanged)
 #endif
 
     return true;
+#endif
 }
 
 void DebuggerStepper::ResetRange()

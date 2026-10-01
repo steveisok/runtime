@@ -12,6 +12,7 @@
 #ifndef _EVENT_CHANNEL_H_
 #define _EVENT_CHANNEL_H_
 
+#include "dbgtransportsession.h"
 #include "debugwait.h"
 
 //---------------------------------------------------------------------------------------
@@ -164,6 +165,13 @@ public:
 
     virtual WaitEvent *GetRightSideEventAckHandle() = 0;
 
+    // Get the event used to notify the RC event thread that an asynchronous event is available.
+    // Most event channels receive this notification through the native pipeline instead.
+    virtual WaitEvent *GetLeftSideEventAvailableHandle()
+    {
+        return nullptr;
+    }
+
     //
     // After sending an event to the LS and determining that we need to wait for the LS's acknowledgement,
     // if any failure occurs, the LS may not have reset the Win32 event which is signaled when an event is
@@ -202,7 +210,10 @@ public:
     //    S_OK if successful
     //
 
-    virtual HRESULT GetReplyFromLeftSide(DebuggerIPCEvent * pReplyEvent, SIZE_T eventSize) = 0;
+    virtual HRESULT GetReplyFromLeftSide(
+        DebuggerIPCEvent * pReplyEvent,
+        SIZE_T eventSize,
+        DWORD timeout) = 0;
 
     //
     // This function and GetEventFromLeftSide() are for the second category of IPC events described in the
@@ -260,6 +271,9 @@ HRESULT NewEventChannelForThisPlatform(CORDB_ADDRESS pLeftSideDCB,
                                        ICorDebugMutableDataTarget * pMutableDataTarget,
                                        const ProcessDescriptor * pProcessDescriptor,
                                        MachineInfo machineInfo,
+                                       IEventChannel ** ppEventChannel);
+
+HRESULT NewEventChannelForThisPlatform(IDebugChannel * pChannel,
                                        IEventChannel ** ppEventChannel);
 
 #endif // _EVENT_CHANNEL_H_

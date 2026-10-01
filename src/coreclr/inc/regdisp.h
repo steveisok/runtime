@@ -317,6 +317,24 @@ inline TADDR GetRegdisplayStackMark(REGDISPLAY *display) {
 struct REGDISPLAY : public REGDISPLAY_BASE {
     REGDISPLAY()
     {
+        memset(this, 0, sizeof(REGDISPLAY));
+    }
+};
+
+inline BOOL IsInCalleesFrames(REGDISPLAY *display, LPVOID stackPointer) {
+    LIMITED_METHOD_CONTRACT;
+    return stackPointer < (LPVOID)(display->SP);
+}
+
+inline TADDR GetRegdisplayStackMark(REGDISPLAY *display) {
+    LIMITED_METHOD_CONTRACT;
+    return display->SP;
+}
+
+#elif defined(TARGET_WASM)
+struct REGDISPLAY : public REGDISPLAY_BASE {
+    REGDISPLAY()
+    {
         // Initialize
         memset(this, 0, sizeof(REGDISPLAY));
     }
@@ -612,5 +630,4 @@ inline void UpdateContextFromRegDisp(PREGDISPLAY pRegDisp, PT_CONTEXT pContext)
 
 
 #endif  // __REGDISP_H
-
 

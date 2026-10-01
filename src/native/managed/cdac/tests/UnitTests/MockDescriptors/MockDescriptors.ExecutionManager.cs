@@ -157,6 +157,26 @@ internal sealed class MockRangeSection : TypedView
     }
 }
 
+internal sealed class MockVirtualIPRangeSection : TypedView
+{
+    private const string RangeSectionFieldName = "RangeSection";
+    private const string NextFieldName = "Next";
+
+    public static Layout<MockVirtualIPRangeSection> CreateLayout(
+        MockTarget.Architecture architecture,
+        int rangeSectionSize)
+        => new SequentialLayoutBuilder("VirtualIPRangeSection", architecture)
+            .AddField(RangeSectionFieldName, rangeSectionSize)
+            .AddPointerField(NextFieldName)
+            .Build<MockVirtualIPRangeSection>();
+
+    public ulong Next
+    {
+        get => ReadPointerField(NextFieldName);
+        set => WritePointerField(NextFieldName, value);
+    }
+}
+
 internal sealed class MockCodeRangeMapRangeList : TypedView
 {
     private const string RangeListTypeFieldName = "RangeListType";
@@ -653,6 +673,7 @@ internal sealed class MockExecutionManagerBuilder
     internal Layout<MockRangeSectionMap> RangeSectionMapLayout { get; }
     internal Layout<MockRangeSectionFragment> RangeSectionFragmentLayout { get; }
     internal Layout<MockRangeSection> RangeSectionLayout { get; }
+    internal Layout<MockVirtualIPRangeSection> VirtualIPRangeSectionLayout { get; }
     internal Layout<MockCodeHeapListNode> CodeHeapListNodeLayout { get; }
     internal Layout<MockCodeHeap> CodeHeapLayout { get; }
     internal Layout<MockLoaderCodeHeap> LoaderCodeHeapLayout { get; }
@@ -712,6 +733,7 @@ internal sealed class MockExecutionManagerBuilder
         RangeSectionMapLayout = MockRangeSectionMap.CreateLayout(architecture);
         RangeSectionFragmentLayout = MockRangeSectionFragment.CreateLayout(architecture);
         RangeSectionLayout = MockRangeSection.CreateLayout(architecture);
+        VirtualIPRangeSectionLayout = MockVirtualIPRangeSection.CreateLayout(architecture, RangeSectionLayout.Size);
         CodeHeapListNodeLayout = MockCodeHeapListNode.CreateLayout(architecture);
         CodeHeapLayout = MockCodeHeap.CreateLayout(architecture);
         LoaderCodeHeapLayout = MockLoaderCodeHeap.CreateLayout(architecture);
@@ -796,6 +818,35 @@ internal sealed class MockExecutionManagerBuilder
         rangeSection.R2RModule = r2rModuleAddress;
         rangeSection.JitManager = jitManagerAddress;
         return rangeSection;
+    }
+
+    public MockVirtualIPRangeSection AddVirtualIPRangeSection(
+        JittedCodeRange jittedCodeRange,
+        ulong jitManagerAddress,
+        ulong r2rModuleAddress,
+        ulong next = 0)
+    {
+        MockMemorySpace.HeapFragment fragment = _rangeSectionMapAllocator.Allocate(
+            (ulong)VirtualIPRangeSectionLayout.Size,
+            "VirtualIPRangeSection");
+        MockVirtualIPRangeSection virtualIPRangeSection = VirtualIPRangeSectionLayout.Create(fragment);
+        MockRangeSection rangeSection = RangeSectionLayout.Create(fragment);
+        rangeSection.RangeBegin = jittedCodeRange.RangeStart;
+        rangeSection.RangeEndOpen = jittedCodeRange.RangeEnd;
+        rangeSection.R2RModule = r2rModuleAddress;
+        rangeSection.JitManager = jitManagerAddress;
+        virtualIPRangeSection.Next = next;
+        return virtualIPRangeSection;
+    }
+
+    public void SetVirtualIPRangeList(ulong head)
+    {
+        ulong listHeadGlobalAddress = AddPointerGlobal(head, "VirtualIPRangeListSlot");
+        Globals =
+        [
+            .. Globals,
+            (nameof(Constants.Globals.VirtualIPRangeList), listHeadGlobalAddress),
+        ];
     }
 
     public MockRangeSection AddRangeListRangeSection(JittedCodeRange jittedCodeRange, ulong jitManagerAddress, int rangeListType)

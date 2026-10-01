@@ -15,7 +15,26 @@
 #include <minipal/guid.h>
 #include "debugwait.h"
 
-#if defined(FEATURE_DBGIPC_TRANSPORT_VM) || defined(FEATURE_DBGIPC_TRANSPORT_DI)
+struct DECLSPEC_UUID("0498eef8-7a24-44a7-8141-dc401904ce25") DECLSPEC_NOVTABLE
+IDebugChannel : public IUnknown
+{
+public:
+    virtual HRESULT STDMETHODCALLTYPE WaitForConnection(
+        /* [in] */ DWORD timeoutMilliseconds,
+        /* [out] */ BOOL *isConnected) = 0;
+
+    virtual HRESULT STDMETHODCALLTYPE CloseConnection() = 0;
+
+    virtual HRESULT STDMETHODCALLTYPE Read(
+        /* [out] */ BYTE *buffer,
+        /* [in] */ DWORD size) = 0;
+
+    virtual HRESULT STDMETHODCALLTYPE Write(
+        /* [in] */ BYTE *data,
+        /* [in] */ DWORD size) = 0;
+};
+
+#if defined(FEATURE_DBGIPC_TRANSPORT_VM) || defined(FEATURE_DBGIPC_TRANSPORT_DI) || defined(FEATURE_SUPPLIED_DBGIPC_TRANSPORT_DI)
 
 #include "processdescriptor.h"
 
@@ -329,25 +348,6 @@ enum IPCEventType
    IPCET_Max,
 };
 
-struct DECLSPEC_UUID("0498eef8-7a24-44a7-8141-dc401904ce25") DECLSPEC_NOVTABLE
-IDebugChannel : public IUnknown
-{
-public:
-    virtual HRESULT STDMETHODCALLTYPE WaitForConnection(
-        /* [in] */ DWORD timeoutMilliseconds,
-        /* [out] */ BOOL *isConnected) = 0;
-
-    virtual HRESULT STDMETHODCALLTYPE CloseConnection() = 0;
-
-    virtual HRESULT STDMETHODCALLTYPE Read(
-        /* [out] */ BYTE *buffer,
-        /* [in] */ DWORD size) = 0;
-
-    virtual HRESULT STDMETHODCALLTYPE Write(
-        /* [in] */ BYTE *data,
-        /* [in] */ DWORD size) = 0;
-};
-
 // The class that encapsulates all the state for a single session on either the right or left side. The left
 // side supports only one instance of this class for a given runtime. The right side can support several (all
 // connected to different LS instances of course).
@@ -368,8 +368,14 @@ public:
     // may be delivered once the session is established.
 #ifdef RIGHT_SIDE_COMPILE
     HRESULT Init(const ProcessDescriptor& pd, const WaitHandle& processExited);
+    HRESULT Init(const ProcessDescriptor& pd, const WaitHandle& processExited, IDebugChannel* channel);
 #else
     HRESULT Init(DebuggerIPCControlBlock * pDCB);
+    HRESULT Init(DebuggerIPCControlBlock* pDCB, IDebugChannel* channel);
+    HRESULT InitCooperative(DebuggerIPCControlBlock* pDCB, IDebugChannel* channel);
+    HRESULT ProcessIncomingBytes(const BYTE* data, DWORD size);
+    bool HasPendingEvent();
+    bool IsOpen();
 #endif // RIGHT_SIDE_COMPILE
 
     // Drive the session to the SS_Closed state, which will deallocate all remaining transport resources
@@ -439,6 +445,7 @@ public:
     // Copies the last event received from the other side into the provided buffer. This should only be called
     // (once) after the event returned from GetIPCEventReadyEvent()/GetDebugEventReadyEvent() has been signalled.
     void GetNextEvent(DebuggerIPCEvent *pEvent, DWORD cbEvent);
+    void GetNextEvent(DebuggerIPCEvent *pEvent, DWORD cbEvent, IPCEventType type);
 
 #ifdef RIGHT_SIDE_COMPILE
     // Read and write memory on the LS from the RS.
@@ -538,7 +545,11 @@ private:
             // Used by MT_ReadMemory and MT_WriteMemory.
             struct
             {
+#if defined(TARGET_WASM)
+                Portable<UINT64>        m_pbLeftSideBuffer; // Address of memory to read/write on the LS
+#else
                 Portable<PBYTE>         m_pbLeftSideBuffer; // Address of memory to read/write on the LS
+#endif
                 Portable<DWORD>         m_cbLeftSideBuffer; // Size in bytes of memory to read/write
                 Portable<HRESULT>       m_hrResult;         // Result from LS (access can fail due to unmapped memory etc.)
             } MemoryAccess;
@@ -554,6 +565,42 @@ private:
 
         BYTE                    m_sMustBeZero[8];   // Set this to zero when initializing and never read the contents
     };
+
+#if defined(TARGET_WASM) || defined(TARGET_64BIT)
+    static_assert(sizeof(MessageHeader) == 48);
+#endif
+
+    static bool TryGetLeftSideBuffer(const MessageHeader &header, PBYTE *ppBuffer)
+    {
+#if defined(TARGET_WASM)
+        UINT64 address = header.TypeSpecificData.MemoryAccess.m_pbLeftSideBuffer;
+        if (address > static_cast<UINT64>(UINTPTR_MAX))
+        {
+            return false;
+        }
+        *ppBuffer = reinterpret_cast<PBYTE>(static_cast<UINT_PTR>(address));
+#else
+        *ppBuffer = header.TypeSpecificData.MemoryAccess.m_pbLeftSideBuffer;
+#endif
+        return true;
+    }
+
+    static PBYTE GetLeftSideBufferForLogging(const MessageHeader &header)
+    {
+        PBYTE buffer = nullptr;
+        TryGetLeftSideBuffer(header, &buffer);
+        return buffer;
+    }
+
+    static void SetLeftSideBuffer(MessageHeader *pHeader, PBYTE buffer)
+    {
+#if defined(TARGET_WASM)
+        pHeader->TypeSpecificData.MemoryAccess.m_pbLeftSideBuffer =
+            static_cast<UINT64>(reinterpret_cast<UINT_PTR>(buffer));
+#else
+        pHeader->TypeSpecificData.MemoryAccess.m_pbLeftSideBuffer = buffer;
+#endif
+    }
 
     // Struct defining the format of the data block sent with a SessionRequest.
     struct SessionRequestData
@@ -660,6 +707,12 @@ private:
     HANDLE          m_hTransportThread = NULL;
 
     IDebugChannel* m_channel = NULL;
+    bool m_fChannelSupplied = false;
+    bool m_fSuppliedChannelUsed = false;
+    bool m_fCooperative = false;
+    BYTE* m_pbCooperativeReceiveBuffer = NULL;
+    DWORD m_cbCooperativeReceiveBuffer = 0;
+    DWORD m_cbCooperativeReceiveBufferCapacity = 0;
 
 #ifdef RIGHT_SIDE_COMPILE
     // On the RS the transport thread needs to know the IP address and port number to Connect() to.
@@ -815,6 +868,8 @@ private:
     // Check read and optionally write memory access to the specified range of bytes. Used to check
     // ReadProcessMemory and WriteProcessMemory requests.
     HRESULT CheckBufferAccess(PBYTE pbBuffer, DWORD cbBuffer, bool fWriteAccess);
+    HRESULT ProcessCooperativeMessage(const MessageHeader& header, const BYTE* data);
+    HRESULT QueueEvent(const MessageHeader& header, const BYTE* data);
 #endif // !RIGHT_SIDE_COMPILE
 
     // Initialize all session state to correct starting values. Used during Init() and on the LS when we
@@ -861,6 +916,6 @@ extern void (*g_pfnAbortTransportCallback)(void);
 #endif // HOST_UNIX
 #endif // !RIGHT_SIDE_COMPILE
 
-#endif // defined(FEATURE_DBGIPC_TRANSPORT_VM) || defined(FEATURE_DBGIPC_TRANSPORT_DI)
+#endif // defined(FEATURE_DBGIPC_TRANSPORT_VM) || defined(FEATURE_DBGIPC_TRANSPORT_DI) || defined(FEATURE_SUPPLIED_DBGIPC_TRANSPORT_DI)
 
 #endif // __DBG_TRANSPORT_SESSION_INCLUDED

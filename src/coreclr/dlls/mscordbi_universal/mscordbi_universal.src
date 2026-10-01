@@ -15,3 +15,6 @@ EXPORTS
 
     ; Out-of-proc creation path from the shim - ICLRDebugging
     OpenVirtualProcessImpl2
+    OpenVirtualProcessImpl3
+    OpenVirtualProcessImpl4
+    RegisterVirtualProcessImpl

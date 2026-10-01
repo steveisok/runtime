@@ -24,11 +24,18 @@ if (CLR_CMAKE_TARGET_WIN32)
   endif()
 
 else ()
-  add_library_clr(cordbee_wks
-      OBJECT
+  if(CLR_CMAKE_TARGET_ARCH_WASM)
+    add_library_clr(cordbee_wks OBJECT
       ${CORDBEE_SOURCES_WKS}
-      ../${ARCH_SOURCES_DIR}/dbghelpers.S
-  )
+      wasm/wasmdebugger.cpp
+    )
+  else()
+    add_library_clr(cordbee_wks
+        OBJECT
+        ${CORDBEE_SOURCES_WKS}
+        ../${ARCH_SOURCES_DIR}/dbghelpers.S
+    )
+  endif()
 
 endif (CLR_CMAKE_TARGET_WIN32)
 

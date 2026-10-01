@@ -882,9 +882,7 @@ void EEStartupHelper()
         // Initialize the debugging services. This must be done before any
         // EE thread objects are created, and before any classes or
         // modules are loaded.
-#ifndef TARGET_WASM
         InitializeDebugger(); // throws on error
-#endif
 #endif // DEBUGGING_SUPPORTED
 
 #ifdef PROFILING_SUPPORTED

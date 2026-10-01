@@ -62,7 +62,10 @@ public:
     virtual HRESULT SendEventToLeftSide(DebuggerIPCEvent * pEvent, SIZE_T eventSize);
 
     // Get the reply from the LS for a previously sent IPC event.
-    virtual HRESULT GetReplyFromLeftSide(DebuggerIPCEvent * pReplyEvent, SIZE_T eventSize);
+    virtual HRESULT GetReplyFromLeftSide(
+        DebuggerIPCEvent * pReplyEvent,
+        SIZE_T eventSize,
+        DWORD timeout);
 
 
 
@@ -375,7 +378,10 @@ HRESULT LocalEventChannel::SendEventToLeftSide(DebuggerIPCEvent * pEvent, SIZE_T
 // Get the reply from the LS for a previously sent IPC event.
 //
 // virtual
-HRESULT LocalEventChannel::GetReplyFromLeftSide(DebuggerIPCEvent * pReplyEvent, SIZE_T eventSize)
+HRESULT LocalEventChannel::GetReplyFromLeftSide(
+    DebuggerIPCEvent * pReplyEvent,
+    SIZE_T eventSize,
+    DWORD)
 {
     // Simply read the IPC event reply directly from the receive buffer on the LS.
     return SafeReadBuffer(RemoteReceiveBuffer(eventSize), reinterpret_cast<BYTE *>(pReplyEvent));

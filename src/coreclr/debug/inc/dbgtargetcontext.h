@@ -617,9 +617,22 @@ typedef struct DECLSPEC_ALIGN(16) {
 static_assert(sizeof(DT_CONTEXT) == sizeof(T_CONTEXT), "DT_CONTEXT size must equal the T_CONTEXT size");
 
 #elif defined(DTCONTEXT_IS_WASM)
-// no context for wasm
-typedef struct {
+// Minimal interpreter context for wasm.
+#define DT_CONTEXT_WASM            0x02000000L
+#define DT_CONTEXT_CONTROL         (DT_CONTEXT_WASM | 0x00000001L)
+#define DT_CONTEXT_INTEGER         (DT_CONTEXT_WASM | 0x00000002L)
+#define DT_CONTEXT_FULL            DT_CONTEXT_CONTROL
+#define DT_CONTEXT_ALL             (DT_CONTEXT_CONTROL | DT_CONTEXT_INTEGER)
+
+typedef struct _DT_CONTEXT {
+    ULONG ContextFlags;
+    DWORD InterpreterWalkFramePointer;
+    DWORD InterpreterSP;
+    DWORD InterpreterFP;
+    DWORD InterpreterIP;
 } DT_CONTEXT;
+
+static_assert(sizeof(DT_CONTEXT) == sizeof(T_CONTEXT), "DT_CONTEXT size must equal the T_CONTEXT size");
 #else
 #error Unsupported platform
 #endif

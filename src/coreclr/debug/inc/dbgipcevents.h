@@ -285,7 +285,7 @@ struct MSLAYOUT DebuggerIPCControlBlock
 
 };
 
-#if defined(FEATURE_DBGIPC_TRANSPORT_VM) || defined(FEATURE_DBGIPC_TRANSPORT_DI)
+#if defined(FEATURE_DBGIPC_TRANSPORT_VM) || defined(FEATURE_DBGIPC_TRANSPORT_DI) || defined(FEATURE_SUPPLIED_DBGIPC_TRANSPORT_DI)
 
 // We need an alternate definition for the control block if using the transport, because the control block has to be sent over the transport
 // In particular we can't nest the send/receive buffers inside of it and we don't use any of the remote handles
@@ -294,7 +294,11 @@ struct MSLAYOUT DebuggerIPCControlBlockTransport
 {
     // Version data should be first in the control block to ensure that we can read it even if the control block
     // changes.
+#if defined(TARGET_WASM)
+    UINT64                     m_DCBSize;           // note this field is used as a semaphore to indicate the DCB is initialized
+#else
     SIZE_T                     m_DCBSize;           // note this field is used as a semaphore to indicate the DCB is initialized
+#endif
     ULONG                      m_verMajor;          // CLR build number for the Left Side.
     ULONG                      m_verMinor;          // CLR build number for the Left Side.
 
@@ -313,11 +317,11 @@ struct MSLAYOUT DebuggerIPCControlBlockTransport
     HRESULT                    m_errorHR;
     unsigned int               m_errorCode;
 
-#if defined(TARGET_64BIT)
+#if defined(TARGET_64BIT) || defined(TARGET_WASM)
     // 64-bit needs this padding to make the handles after this aligned.
     // But x86 can't have this padding b/c it breaks binary compatibility between v1.1 and v2.0.
     ULONG padding4;
-#endif // TARGET_64BIT
+#endif // TARGET_64BIT || TARGET_WASM
 
     // This is set immediately when the helper thread is created.
     // This will be set even if there's a temporary helper thread or if the real helper
@@ -334,10 +338,17 @@ struct MSLAYOUT DebuggerIPCControlBlockTransport
     // ID of the Helper's canary thread.
     DWORD                      m_CanaryThreadId;
 
+#if defined(TARGET_WASM)
+    UINT64                     m_pRuntimeOffsets;
+    UINT64                     m_helperThreadStartAddr;
+    UINT64                     m_helperRemoteStartAddr;
+    UINT64                     m_specialThreadList;
+#else
     DebuggerIPCRuntimeOffsets *m_pRuntimeOffsets;
     void                      *m_helperThreadStartAddr;
     void                      *m_helperRemoteStartAddr;
     DWORD                     *m_specialThreadList;
+#endif
 
     DWORD                      m_specialThreadListLength;
     bool                       m_shutdownBegun;
@@ -353,11 +364,15 @@ struct MSLAYOUT DebuggerIPCControlBlockTransport
 
 };
 
-#endif // defined(FEATURE_DBGIPC_TRANSPORT_VM) || defined(FEATURE_DBGIPC_TRANSPORT_DI)
+#if defined(TARGET_WASM) || defined(TARGET_64BIT)
+static_assert(sizeof(DebuggerIPCControlBlockTransport) == 104);
+#endif
 
-#if defined(FEATURE_DBGIPC_TRANSPORT_VM) || defined(FEATURE_DBGIPC_TRANSPORT_DI)
+#endif // defined(FEATURE_DBGIPC_TRANSPORT_VM) || defined(FEATURE_DBGIPC_TRANSPORT_DI) || defined(FEATURE_SUPPLIED_DBGIPC_TRANSPORT_DI)
+
+#if defined(FEATURE_DBGIPC_TRANSPORT_VM) || defined(FEATURE_DBGIPC_TRANSPORT_DI) || defined(FEATURE_SUPPLIED_DBGIPC_TRANSPORT_DI)
 #include "dbgtransportsession.h"
-#endif // defined(FEATURE_DBGIPC_TRANSPORT_VM) || defined(FEATURE_DBGIPC_TRANSPORT_DI)
+#endif // defined(FEATURE_DBGIPC_TRANSPORT_VM) || defined(FEATURE_DBGIPC_TRANSPORT_DI) || defined(FEATURE_SUPPLIED_DBGIPC_TRANSPORT_DI)
 
 #define INITIAL_APP_DOMAIN_INFO_LIST_SIZE   16
 
@@ -1869,6 +1884,14 @@ struct MSLAYOUT DebuggerIPCEvent
         } MetadataUpdateRequest;
     };
 };
+
+#if defined(TARGET_WASM)
+static_assert(offsetof(DebuggerIPCEvent, MetadataUpdateData) == 40);
+static_assert(sizeof(((DebuggerIPCEvent *)0)->SetJMCFunctionStatus) == 16);
+#elif defined(TARGET_64BIT)
+static_assert(offsetof(DebuggerIPCEvent, MetadataUpdateData) == 48);
+static_assert(sizeof(((DebuggerIPCEvent *)0)->SetJMCFunctionStatus) == 16);
+#endif
 
 
 // When using a network transport rather than shared memory buffers CorDBIPC_BUFFER_SIZE is the upper bound

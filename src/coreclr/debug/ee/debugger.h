@@ -1873,6 +1873,9 @@ public:
         else
             return 0;
     }
+
+    DebuggerIPCEvent* GetIPCEventSendBuffer();
+    HRESULT SendIPCEvent();
 #endif
 
     //

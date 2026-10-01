@@ -1652,6 +1652,11 @@ public:
     bool Step(FramePointer fp, bool in,
               COR_DEBUG_STEP_RANGE *range, SIZE_T cRange, bool rangeIL);
     void StepOut(FramePointer fp, StackTraceTicket ticket);
+    CorDebugStepReason GetStepReason() const
+    {
+        LIMITED_METHOD_CONTRACT;
+        return m_reason;
+    }
 
     virtual DEBUGGER_CONTROLLER_TYPE GetDCType( void )
         { return DEBUGGER_CONTROLLER_STEPPER; }

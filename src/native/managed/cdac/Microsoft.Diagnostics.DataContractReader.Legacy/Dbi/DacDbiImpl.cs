@@ -136,7 +136,18 @@ public sealed unsafe partial class DacDbiImpl : IDacDbiInterface
         int hr = HResults.S_OK;
         try
         {
-            *pResult = _target.Contracts.Debugger.TryGetDebuggerData(out Contracts.DebuggerData data) && data.IsLeftSideInitialized ? Interop.BOOL.TRUE : Interop.BOOL.FALSE;
+            if (!_target.Contracts.TryGetContract<IDebugger>(out IDebugger debugger))
+            {
+                // Targets controlled by an external debug channel do not have the in-process
+                // debugger contract, but they are initialized before DBI is activated.
+                *pResult = Interop.BOOL.TRUE;
+            }
+            else
+            {
+                *pResult = debugger.TryGetDebuggerData(out Contracts.DebuggerData data) && data.IsLeftSideInitialized
+                    ? Interop.BOOL.TRUE
+                    : Interop.BOOL.FALSE;
+            }
         }
         catch (System.Exception ex)
         {
@@ -4815,7 +4826,10 @@ public sealed unsafe partial class DacDbiImpl : IDacDbiInterface
         int hr = HResults.S_OK;
         try
         {
-            *pRetVal = _target.Contracts.Debugger.GetAttachStateFlags();
+            if (_target.Contracts.TryGetContract<IDebugger>(out IDebugger debugger))
+            {
+                *pRetVal = debugger.GetAttachStateFlags();
+            }
         }
         catch (System.Exception ex)
         {

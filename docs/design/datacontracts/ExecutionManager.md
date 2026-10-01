@@ -225,6 +225,7 @@ Within a range section fragment, a [nibble map](#nibblemap) structure is used to
 | `RangeSectionFragment` | `RangeEndOpen` | `pointer` | End address of the fragment |
 | `RangeSectionFragment` | `RangeSection` | `pointer` | Pointer to the corresponding `RangeSection` |
 | `RangeSectionMap` | `TopLevelData` | `pointer` | Pointer to the outermost RangeSection |
+| `VirtualIPRangeSection` | `Next` | `pointer` | Pointer to the next WASM synthetic virtual-IP range; the embedded `RangeSection` begins at the same address |
 | `ReadyToRunCoreHeader` | *(type size)* | `uint32` | Size of the ReadyToRun core header in bytes |
 | `ReadyToRunCoreHeader` | `NumberOfSections` | `uint32` | Number of sections following the header |
 | `ReadyToRunCoreInfo` | `Header` | `pointer` | Pointer to the `READYTORUN_CORE_HEADER` |
@@ -265,6 +266,7 @@ Within a range section fragment, a [nibble map](#nibblemap) structure is used to
 | `HashMapSlotsPerBucket` | `uint32` | Number of slots in each bucket of a `HashMap` |
 | `HashMapValueMask` | `uint64` | Bitmask used when storing values in a `HashMap` |
 | `InterpreterJitManagerAddress` | `pointer` | Address of the global pointer to the InterpreterJitManager instance. Present only when interpreter support is enabled. |
+| `VirtualIPRangeList` | `pointer` | Address of the global pointer to the head of the WASM synthetic virtual-IP range list |
 | `ObjectMethodTable` | `pointer` | Address of the global variable holding the System.Object MethodTable pointer |
 | `StubCodeBlockLast` | `uint8` | Maximum sentinel code header value indentifying a stub code block |
 | `ThePreStub` | `pointer` | Address of the global containing the prestub entrypoint |
@@ -287,7 +289,7 @@ Contract constants used:
 | --- | --- | --- | --- |
 | `CachedClass` | `uint` | Bit flag to indicate exception clause contains a cached TypeHandle | `0x10000000` |
 
-The bulk of the work is done by the `GetCodeBlockHandle` API that maps a code pointer to information about the containing jitted method. This relies the [range section lookup](#rangesectionmap).
+The bulk of the work is done by the `GetCodeBlockHandle` API that maps a code pointer to information about the containing jitted method. This relies on the [range section lookup](#rangesectionmap). On WASM, synthetic virtual IPs are resolved through `VirtualIPRangeList` instead of the normal range section map.
 
 ```csharp
     private CodeBlock? GetCodeBlock(TargetCodePointer jittedCodeAddress)
@@ -717,6 +719,11 @@ nibble distinguish a pointer from bucket data. The pointer's upper 28 bits
 are stored directly. Its low four bits contain only two bits of information
 because code starts are 4-byte aligned, so they are encoded as values 9-12.
 Adding the decoded relative pointer to the map base gives the method start.
+
+WASM ReadyToRun frames use synthetic virtual IPs whose high and low bits are set. These ranges are
+not inserted into the normal range section map. The runtime stores them in `VirtualIPRangeList`, a
+linked list of `VirtualIPRangeSection` nodes. Each node begins with an embedded `RangeSection`, so
+after locating the containing range the normal ReadyToRun JIT-manager lookup applies.
 
 When a code block is added, its start is recorded in the nibble for the
 containing bucket. Each subsequent map unit whose entire 256-byte region is

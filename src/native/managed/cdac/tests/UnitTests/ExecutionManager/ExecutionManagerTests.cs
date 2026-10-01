@@ -21,6 +21,7 @@ public class ExecutionManagerTests
             [DataType.RangeSectionMap] = TargetTestHelpers.CreateTypeInfo(emBuilder.RangeSectionMapLayout),
             [DataType.RangeSectionFragment] = TargetTestHelpers.CreateTypeInfo(emBuilder.RangeSectionFragmentLayout),
             [DataType.RangeSection] = TargetTestHelpers.CreateTypeInfo(emBuilder.RangeSectionLayout),
+            [DataType.VirtualIPRangeSection] = TargetTestHelpers.CreateTypeInfo(emBuilder.VirtualIPRangeSectionLayout),
             [DataType.CodeHeapListNode] = TargetTestHelpers.CreateTypeInfo(emBuilder.CodeHeapListNodeLayout),
             [DataType.CodeHeap] = TargetTestHelpers.CreateTypeInfo(emBuilder.CodeHeapLayout),
             [DataType.LoaderCodeHeap] = TargetTestHelpers.CreateTypeInfo(emBuilder.LoaderCodeHeapLayout),
@@ -91,11 +92,15 @@ public class ExecutionManagerTests
         string version,
         MockTarget.Architecture arch,
         Action<MockExecutionManagerBuilder>? configure = null,
-        ulong allCodeHeaps = 0)
+        ulong allCodeHeaps = 0,
+        RuntimeInfoArchitecture? targetArchitecture = null)
     {
         MockExecutionManagerBuilder emBuilder = new(version, arch, MockExecutionManagerBuilder.DefaultAllocationRange, allCodeHeaps);
         configure?.Invoke(emBuilder);
-        Target target = CreateTarget(emBuilder);
+        Target target = CreateTarget(
+            emBuilder,
+            RuntimeInfoOperatingSystem.Windows,
+            targetArchitecture);
         return target.Contracts.ExecutionManager;
     }
 
@@ -324,22 +329,16 @@ public class ExecutionManagerTests
         }
     }
 
-    // On WASM there are no native code pointers: a "code address" is a synthetic virtual IP
-    // (ExecutionManager::GetWasmVirtualIPFromStackPointer, base + function-local offset). R2R
-    // modules are registered in the RangeSectionMap by their virtual-IP range, so resolving a
-    // virtual IP to its MethodDesc uses the same generic RangeSection.Find ->
-    // ReadyToRunJitManager path as any other architecture -- there is no WASM-specific IP->MethodDesc
-    // code path (MinVirtualIP / FunctionTableIndexRangeSection are only consumed by the unwinder's
-    // function-table-index -> base-virtual-IP mapping). This verifies that resolution on a wasm32
-    // (32-bit little-endian) target, treating the code address as a virtual IP, and confirms the
-    // R2R classification.
+    // WASM R2R code uses synthetic virtual IPs registered in a separate linked list rather than
+    // the normal RangeSectionMap. Verify that ExecutionManager resolves the containing synthetic
+    // RangeSection before using the standard ReadyToRunJitManager method lookup.
     [Theory]
     [InlineData("c1")]
     public void GetMethodDesc_R2R_WasmVirtualIP(string version)
     {
         MockTarget.Architecture wasmArch = new() { IsLittleEndian = true, Is64Bit = false };
 
-        const ulong virtualIPBase = 0x0050_0000u;   // R2R module base virtual IP
+        const ulong virtualIPBase = 0x8000_0001u;
         const uint virtualIPRangeSize = 0xc000u;
         const ulong jitManagerAddress = 0x000b_ff00;
         const ulong expectedMethodDescAddress = 0x0101_aaa0;
@@ -359,9 +358,11 @@ public class ExecutionManagerTests
                     [(jittedCode.RangeStart + functionLocalVirtualIP, expectedMethodDescAddress)]);
 
                 MockLoaderModule r2rModule = emBuilder.AddReadyToRunModule(r2rInfo.Address);
-                MockRangeSection rangeSection = emBuilder.AddReadyToRunRangeSection(jittedCode, jitManagerAddress, r2rModule.Address);
-                _ = emBuilder.AddRangeSectionFragment(jittedCode, rangeSection.Address);
-            });
+                MockVirtualIPRangeSection rangeSection =
+                    emBuilder.AddVirtualIPRangeSection(jittedCode, jitManagerAddress, r2rModule.Address);
+                emBuilder.SetVirtualIPRangeList(rangeSection.Address);
+            },
+            targetArchitecture: RuntimeInfoArchitecture.Wasm);
 
         TargetCodePointer virtualIP = new(virtualIPBase + functionLocalVirtualIP);
 

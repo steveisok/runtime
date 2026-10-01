@@ -30,6 +30,11 @@
 #include "dbgtransportsession.h"
 #endif // FEATURE_DBGIPC_TRANSPORT_VM
 
+#ifdef FEATURE_SINGLE_THREADED_DEBUGGER
+bool IsSingleThreadedDebuggerAttached();
+HRESULT InitializeSingleThreadedDebuggerTransport(DebuggerRCThread* rcThread);
+#endif
+
 #include "dbgenginemetrics.h"
 
 #include "../../vm/rejit.h"
@@ -642,7 +647,7 @@ void Debugger::SendSimpleIPCEventAndBlock()
 
     if (CORDebuggerAttached())
     {
-        m_pRCThread->SendIPCEvent();
+        SendIPCEvent();
 
         // Stop all Runtime threads
         this->TrapAllRuntimeThreads();
@@ -820,6 +825,12 @@ ShutdownTransport()
 /* ------------------------------------------------------------------------ *
  * Debugger routines
  * ------------------------------------------------------------------------ */
+
+#ifdef FEATURE_SINGLE_THREADED_DEBUGGER
+DebuggerIPCEvent* GetSingleThreadedDebuggerIPCEventBuffer();
+HRESULT SendSingleThreadedDebuggerIPCEvent(DebuggerIPCEvent* event);
+void PauseSingleThreadedDebugger();
+#endif
 
 //
 // a Debugger object represents the global state of the debugger program.
@@ -1750,7 +1761,7 @@ void DebuggerStartUp::WaitForContinueNotification()
 {
     STANDARD_VM_CONTRACT;
 
-#ifdef TARGET_UNIX
+#if defined(TARGET_UNIX) && !defined(FEATURE_SINGLE_THREADED_DEBUGGER)
     // Signal the debugger (via dbgshim) and wait until it is ready for us to
     // continue. This needs to be outside the lock and after the transport is
     // initialized.
@@ -1762,7 +1773,7 @@ void DebuggerStartUp::WaitForContinueNotification()
         // in startup code or Main.
        _debugger->MarkDebuggerAttachedInternal();
     }
-#endif // TARGET_UNIX
+#endif // TARGET_UNIX && !FEATURE_SINGLE_THREADED_DEBUGGER
 }
 
 //---------------------------------------------------------------------------------------
@@ -1866,8 +1877,6 @@ HRESULT Debugger::Startup(void)
             DebuggerController::Initialize();
         }
 
-        InitializeHijackFunctionAddress();
-
         // Allows the debugger (and profiler) diagnostics to be disabled so resources like
         // the named pipes and semaphores are not created.
         if (CLRConfig::GetConfigValue(CLRConfig::EXTERNAL_EnableDiagnostics) == 0)
@@ -1882,6 +1891,28 @@ HRESULT Debugger::Startup(void)
 
             return S_OK;
         }
+
+#ifdef FEATURE_SINGLE_THREADED_DEBUGGER
+        // Initialize the runtime controller state and transport without starting a helper thread.
+        m_pRCThread = new DebuggerRCThread(this);
+        _ASSERTE(m_pRCThread != NULL); // throws on oom
+        TRACE_ALLOC(m_pRCThread);
+
+        hr = m_pRCThread->Init();
+        _ASSERTE(SUCCEEDED(hr)); // throws on error
+
+        hr = InitializeSingleThreadedDebuggerTransport(m_pRCThread);
+        if (FAILED(hr))
+        {
+            ShutdownTransport();
+            return S_OK;
+        }
+
+        startup.RaiseStartupNotification();
+        return S_OK;
+#endif
+
+        InitializeHijackFunctionAddress();
 
         // Create the runtime controller thread, a.k.a, the debug helper thread.
         // Don't use the interop-safe heap b/c we don't want to lazily create it.
@@ -1971,8 +2002,10 @@ HRESULT Debugger::StartupPhase2(Thread * pThread)
     // We also ensure the debugger is actually attached.
     if (SUCCEEDED(hr) && CORDebuggerAttached())
     {
+#ifndef FEATURE_SINGLE_THREADED_DEBUGGER
         StartCanaryThread();
         SendCreateProcess(&dbgLockHolder); // toggles lock
+#endif
     }
 
     // After returning from debugger startup we assume that the runtime might start using the NGEN flags to make
@@ -2080,8 +2113,10 @@ void Debugger::LazyInit()
     HRESULT hr = m_heap.Init(FALSE);
     IfFailThrow(hr);
 
+#ifndef FEATURE_SINGLE_THREADED_DEBUGGER
     hr = m_executableHeap.Init(TRUE);
     IfFailThrow(hr);
+#endif
 
     m_pLazyData = new (interopsafe) DebuggerLazyInit();
     _ASSERTE(m_pLazyData != NULL); // throws on oom.
@@ -2160,6 +2195,9 @@ void DebuggerLazyInit::Init()
 
     // Caller ensures this isn't double-called.
 
+#ifdef FEATURE_SINGLE_THREADED_DEBUGGER
+    return;
+#else
     // Create some synchronization events. These events stay signaled all the time except when an attach is in progress.
     m_exAttachEvent.CreateManualEvent(TRUE);
 
@@ -2191,6 +2229,7 @@ void DebuggerLazyInit::Init()
 
     // Let the helper thread lazy init stuff too.
     m_RCThread.Init();
+#endif
 }
 
 
@@ -2246,6 +2285,9 @@ HRESULT Debugger::RequestFavor(FAVORCALLBACK fp, void * pData)
     }
     CONTRACTL_END;
 
+#ifdef FEATURE_SINGLE_THREADED_DEBUGGER
+    return E_NOTIMPL;
+#else
     if (m_pRCThread == NULL ||
         m_pRCThread->GetRCThreadId() == GetCurrentThreadId())
     {
@@ -2258,6 +2300,25 @@ HRESULT Debugger::RequestFavor(FAVORCALLBACK fp, void * pData)
 
     m_pRCThread->DoFavor(fp, pData);
     return S_OK;
+#endif
+}
+
+DebuggerIPCEvent* Debugger::GetIPCEventSendBuffer()
+{
+#ifdef FEATURE_SINGLE_THREADED_DEBUGGER
+    return GetSingleThreadedDebuggerIPCEventBuffer();
+#else
+    return m_pRCThread->GetIPCEventSendBuffer();
+#endif
+}
+
+HRESULT Debugger::SendIPCEvent()
+{
+#ifdef FEATURE_SINGLE_THREADED_DEBUGGER
+    return SendSingleThreadedDebuggerIPCEvent(GetSingleThreadedDebuggerIPCEventBuffer());
+#else
+    return m_pRCThread->SendIPCEvent();
+#endif
 }
 
 /******************************************************************************
@@ -4929,6 +4990,7 @@ void Debugger::SendSyncCompleteIPCEvent(bool isEESuspendedForGC)
         GC_NOTRIGGER;
         PRECONDITION(ThreadHoldsLock());
 
+#ifndef FEATURE_SINGLE_THREADED_DEBUGGER
         // Anyone sending the synccomplete must hold the TSL.
         PRECONDITION(ThreadStore::HoldingThreadStore() || IsAtProcessExit());
 
@@ -4938,6 +5000,7 @@ void Debugger::SendSyncCompleteIPCEvent(bool isEESuspendedForGC)
             PRECONDITION(ThisIsHelperThreadWorker());
         }
         MODE_COOPERATIVE;
+#endif
 
         // We had better be trapping Runtime threads and not stopped yet.
         if (isEESuspendedForGC)
@@ -5005,10 +5068,10 @@ void Debugger::SendSyncCompleteIPCEvent(bool isEESuspendedForGC)
     {
         STRESS_LOG0(LF_CORDB, LL_EVERYTHING, "GetIPCEventSendBuffer called in SendSyncCompleteIPCEvent\n");
         // Send the Sync Complete event to the Right Side
-        DebuggerIPCEvent* ipce = m_pRCThread->GetIPCEventSendBuffer();
+        DebuggerIPCEvent* ipce = GetIPCEventSendBuffer();
         InitIPCEvent(ipce, DB_IPCE_SYNC_COMPLETE);
 
-        m_pRCThread->SendIPCEvent();
+        SendIPCEvent();
     }
 }
 
@@ -5148,6 +5211,15 @@ void Debugger::TrapAllRuntimeThreads()
     }
     CONTRACTL_END;
 
+#ifdef FEATURE_SINGLE_THREADED_DEBUGGER
+    if (m_trappingRuntimeThreads == FALSE)
+    {
+        m_trappingRuntimeThreads = TRUE;
+        SuspendComplete();
+    }
+    return;
+#endif
+
 #if !defined(FEATURE_DBGIPC_TRANSPORT_VM)
     // Only sync if RS requested it.
     if (!m_RSRequestedSync)
@@ -5244,12 +5316,18 @@ void Debugger::ReleaseAllRuntimeThreads(AppDomain *pAppDomain)
         PRECONDITION(ThreadHoldsLock());
 
         // Currently, this is only done on a helper thread.
+#ifndef FEATURE_SINGLE_THREADED_DEBUGGER
         PRECONDITION(ThisIsHelperThreadWorker());
+#endif
 
         // Make sure that we were stopped...
         PRECONDITION(m_trappingRuntimeThreads && m_stopped);
     }
     CONTRACTL_END;
+
+#ifdef FEATURE_SINGLE_THREADED_DEBUGGER
+    return;
+#endif
 
     //<TODO>@todo APPD if we want true isolation, remove this & finish the work</TODO>
     pAppDomain = NULL;
@@ -5677,8 +5755,12 @@ void Debugger::SuspendForGarbageCollectionStarted()
     }
     CONTRACTL_END;
 
+#ifdef FEATURE_SINGLE_THREADED_DEBUGGER
+    return;
+#else
     this->m_isGarbageCollectionEventsEnabledLatch = this->m_isGarbageCollectionEventsEnabled;
     this->m_willBlockOnGarbageCollectionEvent = this->m_isGarbageCollectionEventsEnabledLatch;
+#endif
 }
 
 void Debugger::SuspendForGarbageCollectionCompleted()
@@ -5692,6 +5774,9 @@ void Debugger::SuspendForGarbageCollectionCompleted()
 
     this->m_isSuspendedForGarbageCollection = TRUE;
 
+#ifdef FEATURE_SINGLE_THREADED_DEBUGGER
+    return;
+#else
     if (!CORDebuggerAttached() || !this->m_isGarbageCollectionEventsEnabledLatch)
     {
         return;
@@ -5706,17 +5791,18 @@ void Debugger::SuspendForGarbageCollectionCompleted()
     {
         Debugger::DebuggerLockHolder dbgLockHolder(this);
 
-        DebuggerIPCEvent* ipce1 = m_pRCThread->GetIPCEventSendBuffer();
+        DebuggerIPCEvent* ipce1 = GetIPCEventSendBuffer();
         InitIPCEvent(ipce1,
             DB_IPCE_BEFORE_GARBAGE_COLLECTION,
             pThread);
 
-        m_pRCThread->SendIPCEvent();
+        SendIPCEvent();
         this->SuspendComplete(true);
     }
 
     this->GetGarbageCollectionBlockerEvent().Wait(INFINITE);
     this->GetGarbageCollectionBlockerEvent().Reset();
+#endif
 }
 
 void Debugger::ResumeForGarbageCollectionStarted()
@@ -5730,6 +5816,9 @@ void Debugger::ResumeForGarbageCollectionStarted()
 
     this->m_isSuspendedForGarbageCollection = FALSE;
 
+#ifdef FEATURE_SINGLE_THREADED_DEBUGGER
+    return;
+#else
     if (!CORDebuggerAttached() || !this->m_isGarbageCollectionEventsEnabledLatch)
     {
         return;
@@ -5743,12 +5832,12 @@ void Debugger::ResumeForGarbageCollectionStarted()
     {
         Debugger::DebuggerLockHolder dbgLockHolder(this);
 
-        DebuggerIPCEvent* ipce1 = m_pRCThread->GetIPCEventSendBuffer();
+        DebuggerIPCEvent* ipce1 = GetIPCEventSendBuffer();
         InitIPCEvent(ipce1,
             DB_IPCE_AFTER_GARBAGE_COLLECTION,
             pThread);
 
-        m_pRCThread->SendIPCEvent();
+        SendIPCEvent();
         this->SuspendComplete(true);
     }
 
@@ -5756,6 +5845,7 @@ void Debugger::ResumeForGarbageCollectionStarted()
     this->GetGarbageCollectionBlockerEvent().Reset();
     this->m_isBlockedOnGarbageCollectionEvent = FALSE;
     this->m_willBlockOnGarbageCollectionEvent = FALSE;
+#endif
 }
 
 #ifdef FEATURE_DATABREAKPOINT
@@ -5790,14 +5880,14 @@ void Debugger::SendDataBreakpoint(Thread *thread, CONTEXT *context,
     _ASSERTE(ThreadHoldsLock());
 
     // Send a breakpoint event to the Right Side
-    DebuggerIPCEvent* ipce = m_pRCThread->GetIPCEventSendBuffer();
+    DebuggerIPCEvent* ipce = GetIPCEventSendBuffer();
     memcpy(&(ipce->DataBreakpointData.context), context, sizeof(CONTEXT));
     ipce->DataBreakpointData.contextSize = sizeof(CONTEXT);
     InitIPCEvent(ipce,
         DB_IPCE_DATA_BREAKPOINT,
         thread);
 
-    m_pRCThread->SendIPCEvent();
+    SendIPCEvent();
 }
 #endif
 
@@ -5836,14 +5926,14 @@ void Debugger::SendBreakpoint(Thread *thread, CONTEXT *context,
     _ASSERTE(ThreadHoldsLock());
 
     // Send a breakpoint event to the Right Side
-    DebuggerIPCEvent* ipce = m_pRCThread->GetIPCEventSendBuffer();
+    DebuggerIPCEvent* ipce = GetIPCEventSendBuffer();
     InitIPCEvent(ipce,
                  DB_IPCE_BREAKPOINT,
                  thread);
     ipce->BreakpointData.breakpointToken.Set(breakpoint);
     _ASSERTE( breakpoint->m_pAppDomain == ipce->vmAppDomain.GetRawPtr());
 
-    m_pRCThread->SendIPCEvent();
+    SendIPCEvent();
 }
 
 
@@ -5908,12 +5998,12 @@ void Debugger::SendRawUserBreakpoint(Thread * pThread)
 
 
     // Send a breakpoint event to the Right Side
-    DebuggerIPCEvent* pEvent = m_pRCThread->GetIPCEventSendBuffer();
+    DebuggerIPCEvent* pEvent = GetIPCEventSendBuffer();
     InitIPCEvent(pEvent,
                  DB_IPCE_USER_BREAKPOINT,
                  pThread);
 
-    m_pRCThread->SendIPCEvent();
+    SendIPCEvent();
 }
 
 //
@@ -5939,12 +6029,12 @@ void Debugger::SendInterceptExceptionComplete(Thread *thread)
     _ASSERTE(ThreadHoldsLock());
 
     // Send a breakpoint event to the Right Side
-    DebuggerIPCEvent* ipce = m_pRCThread->GetIPCEventSendBuffer();
+    DebuggerIPCEvent* ipce = GetIPCEventSendBuffer();
     InitIPCEvent(ipce,
                  DB_IPCE_INTERCEPT_EXCEPTION_COMPLETE,
                  thread);
 
-    m_pRCThread->SendIPCEvent();
+    SendIPCEvent();
 }
 
 
@@ -5976,13 +6066,13 @@ void Debugger::SendStep(Thread *thread, CONTEXT *context,
     _ASSERTE(ThreadHoldsLock());
 
     // Send a step event to the Right Side
-    DebuggerIPCEvent* ipce = m_pRCThread->GetIPCEventSendBuffer();
+    DebuggerIPCEvent* ipce = GetIPCEventSendBuffer();
     InitIPCEvent(ipce,
                  DB_IPCE_STEP_COMPLETE,
                  thread);
     ipce->StepData.stepperToken.Set(stepper);
     ipce->StepData.reason = reason;
-    m_pRCThread->SendIPCEvent();
+    SendIPCEvent();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -6016,7 +6106,7 @@ void Debugger::LockAndSendEnCRemapEvent(DebuggerJitInfo * dji, SIZE_T currentIP,
     SENDIPCEVENT_BEGIN(this, thread);
 
     // Send an EnC remap event to the Right Side.
-    DebuggerIPCEvent* ipce = m_pRCThread->GetIPCEventSendBuffer();
+    DebuggerIPCEvent* ipce = GetIPCEventSendBuffer();
     InitIPCEvent(ipce,
                  DB_IPCE_ENC_REMAP,
                  thread);
@@ -6069,7 +6159,7 @@ void Debugger::LockAndSendEnCRemapCompleteEvent(MethodDesc *pMD)
     // Note that the debugger lock is reentrant, so we may or may not hold it already.
     SENDIPCEVENT_BEGIN(this, thread);
     // Send an EnC remap complete event to the Right Side.
-    DebuggerIPCEvent* ipce = m_pRCThread->GetIPCEventSendBuffer();
+    DebuggerIPCEvent* ipce = GetIPCEventSendBuffer();
     InitIPCEvent(ipce,
                  DB_IPCE_ENC_REMAP_COMPLETE,
                  thread);
@@ -6125,7 +6215,7 @@ void Debugger::SendEnCUpdateEvent(DebuggerIPCEventType eventType,
         return;
 
     // Send an EnC UpdateFunction event to the Right Side.
-    DebuggerIPCEvent* event = m_pRCThread->GetIPCEventSendBuffer();
+    DebuggerIPCEvent* event = GetIPCEventSendBuffer();
     InitIPCEvent(event,
                  eventType,
                  NULL);
@@ -6143,7 +6233,7 @@ void Debugger::SendEnCUpdateEvent(DebuggerIPCEventType eventType,
     DebuggerModule * pDModule = LookupOrCreateModule(pModule);
     event->EnCUpdate.vmAssembly.SetRawPtr((pDModule ? pDModule->GetAssembly() : NULL));
 
-    m_pRCThread->SendIPCEvent();
+    SendIPCEvent();
 
     LOG((LF_CORDB, LL_INFO10000, "D::SEnCUE: done\n"));
 }
@@ -6175,7 +6265,7 @@ void Debugger::LockAndSendBreakpointSetError(PATCH_UNORDERED_ARRAY * listUnbinda
     // Note that the debugger lock is reentrant, so we may or may not hold it already.
     SENDIPCEVENT_BEGIN(this, thread);
 
-    DebuggerIPCEvent* ipce = m_pRCThread->GetIPCEventSendBuffer();
+    DebuggerIPCEvent* ipce = GetIPCEventSendBuffer();
 
     for(ULONG i = 0; i < count; i++)
     {
@@ -6197,7 +6287,7 @@ void Debugger::LockAndSendBreakpointSetError(PATCH_UNORDERED_ARRAY * listUnbinda
         ipce->BreakpointSetErrorData.breakpointToken.Set(static_cast<DebuggerBreakpoint*> (controller));
 
         // IPC event is now initialized, so we can send it over.
-        m_pRCThread->SendIPCEvent();
+        SendIPCEvent();
     }
 
     // Stop all Runtime threads
@@ -7166,7 +7256,7 @@ HRESULT Debugger::SendExceptionHelperAndBlock(
     // This function can be called on helper thread or managed thread.
     // However, we should be holding locks upon entry
 
-    DebuggerIPCEvent* ipce = m_pRCThread->GetIPCEventSendBuffer();
+    DebuggerIPCEvent* ipce = GetIPCEventSendBuffer();
 
     //
     // Send pre-Whidbey EXCEPTION IPC event.
@@ -7176,7 +7266,7 @@ HRESULT Debugger::SendExceptionHelperAndBlock(
     ipce->Exception.vmExceptionHandle.SetRawPtr(exceptionHandle);
     ipce->Exception.firstChance = (eventType == DEBUG_EXCEPTION_FIRST_CHANCE);
     ipce->Exception.continuable = fContinuable;
-    hr = m_pRCThread->SendIPCEvent();
+    hr = SendIPCEvent();
 
     _ASSERTE(SUCCEEDED(hr) && "D::SE: Send ExceptionCallback event failed.");
 
@@ -7192,7 +7282,7 @@ HRESULT Debugger::SendExceptionHelperAndBlock(
     ipce->ExceptionCallback2.vmExceptionHandle.SetRawPtr(exceptionHandle);
 
     LOG((LF_CORDB, LL_INFO10000, "D::SE: sending ExceptionCallback2 event"));
-    hr = m_pRCThread->SendIPCEvent();
+    hr = SendIPCEvent();
 
     if (eventType == DEBUG_EXCEPTION_FIRST_CHANCE)
     {
@@ -7244,6 +7334,7 @@ void Debugger::SendExceptionEventsWorker(
 
     SIZE_T nOffset = (SIZE_T)ICorDebugInfo::NO_MAPPING;
     DebuggerMethodInfo *pDebugMethodInfo = NULL;
+    MethodDesc *pMethodDesc = NULL;
 
     // If we're passed a zero IP or SP, then go to the ThreadExceptionState on the thread to get the data. Note:
     // we can only do this if there is a context in the pExState. There are cases (most notably the
@@ -7260,7 +7351,7 @@ void Debugger::SendExceptionEventsWorker(
     if (g_pEEInterface->IsManagedNativeCode(ip))
     {
 
-        MethodDesc *pMethodDesc = g_pEEInterface->GetNativeCodeMethodDesc(PCODE(ip));
+        pMethodDesc = g_pEEInterface->GetNativeCodeMethodDesc(PCODE(ip));
         _ASSERTE(pMethodDesc != NULL);
 
         if (pMethodDesc != NULL)
@@ -7278,7 +7369,7 @@ void Debugger::SendExceptionEventsWorker(
         }
     }
 
-    DebuggerIPCEvent* ipce = m_pRCThread->GetIPCEventSendBuffer();
+    DebuggerIPCEvent* ipce = GetIPCEventSendBuffer();
 
     if (fFirstChance)
     {
@@ -7345,7 +7436,7 @@ void Debugger::SendExceptionEventsWorker(
             ipce->ExceptionCallback2.vmExceptionHandle.SetRawPtr(g_pEEInterface->GetThreadException(pThread));
 
             LOG((LF_CORDB, LL_INFO10000, "D::SE: sending ExceptionCallback2 (USER FIRST CHANCE)"));
-            hr = m_pRCThread->SendIPCEvent();
+            hr = SendIPCEvent();
 
             _ASSERTE(SUCCEEDED(hr) && "D::SE: Send ExceptionCallback2 (User) event failed.");
 
@@ -7990,7 +8081,7 @@ void Debugger::SendCatchHandlerFound(
                 //
                 // Figure out parameters to the IPC events.
                 //
-                DebuggerIPCEvent* ipce = m_pRCThread->GetIPCEventSendBuffer();
+                DebuggerIPCEvent* ipce = GetIPCEventSendBuffer();
 
                 //
                 // Send Whidbey EXCEPTION IPC event.
@@ -8004,7 +8095,7 @@ void Debugger::SendCatchHandlerFound(
                 ipce->ExceptionCallback2.vmExceptionHandle.SetRawPtr(g_pEEInterface->GetThreadException(pThread));
 
                 LOG((LF_CORDB, LL_INFO10000, "D::FCMECF: sending ExceptionCallback2"));
-                hr = m_pRCThread->SendIPCEvent();
+                hr = SendIPCEvent();
 
                 _ASSERTE(SUCCEEDED(hr) && "D::FCMECF: Send ExceptionCallback2 event failed.");
 
@@ -8091,7 +8182,7 @@ void Debugger::ManagedExceptionUnwindBegin(Thread *pThread)
             {
                 HRESULT hr;
 
-                DebuggerIPCEvent* ipce = m_pRCThread->GetIPCEventSendBuffer();
+                DebuggerIPCEvent* ipce = GetIPCEventSendBuffer();
 
                 //
                 // Send Whidbey EXCEPTION IPC event.
@@ -8102,7 +8193,7 @@ void Debugger::ManagedExceptionUnwindBegin(Thread *pThread)
                 ipce->ExceptionUnwind.dwFlags = 0;
 
                         LOG((LF_CORDB, LL_INFO10000, "D::MEUB: sending ExceptionUnwind event"));
-                        hr = m_pRCThread->SendIPCEvent();
+                        hr = SendIPCEvent();
 
                 _ASSERTE(SUCCEEDED(hr) && "D::MEUB: Send ExceptionUnwind event failed.");
 
@@ -8439,6 +8530,10 @@ LONG Debugger::LastChanceManagedException(EXCEPTION_POINTERS * pExceptionInfo,
         // using this thread's stack space.
         if (jitAttachRequested)
         {
+            if (m_pRCThread == NULL)
+            {
+                return ExceptionContinueSearch;
+            }
             m_pRCThread->DoFavor((FAVORCALLBACK) LazyInitFavor, NULL);
         }
 
@@ -8455,7 +8550,11 @@ LONG Debugger::LastChanceManagedException(EXCEPTION_POINTERS * pExceptionInfo,
         // portion of the stack (including stack frames in the runtime) and start the stackwalk at the
         // faulting stack frame.  The code to set the filter CONTEXT is in a hijack function which is only
         // used during mixed-mode debugging.
-        if (m_pRCThread->GetDCB()->m_rightSideIsWin32Debugger)
+        DebuggerIPCControlBlock* pIPCControlBlock =
+            m_pRCThread != NULL ? m_pRCThread->GetDCB() : NULL;
+        bool rightSideIsWin32Debugger =
+            pIPCControlBlock != NULL && pIPCControlBlock->m_rightSideIsWin32Debugger;
+        if (rightSideIsWin32Debugger)
         {
             GCX_COOP();
 
@@ -8480,7 +8579,7 @@ LONG Debugger::LastChanceManagedException(EXCEPTION_POINTERS * pExceptionInfo,
         {
         }
         EX_END_CATCH
-        if (m_pRCThread->GetDCB()->m_rightSideIsWin32Debugger)
+        if (rightSideIsWin32Debugger)
         {
             GCX_COOP();
 
@@ -8896,12 +8995,12 @@ void Debugger::ThreadStarted(Thread* pRuntimeThread)
                  !g_pEEInterface->GetThread()->m_fPreemptiveGCDisabled));
         _ASSERTE(ThreadHoldsLock());
 
-    DebuggerIPCEvent* ipce = m_pRCThread->GetIPCEventSendBuffer();
+    DebuggerIPCEvent* ipce = GetIPCEventSendBuffer();
     InitIPCEvent(ipce,
                  DB_IPCE_THREAD_ATTACH,
                  pRuntimeThread);
 
-    m_pRCThread->SendIPCEvent();
+    SendIPCEvent();
 
         //
         // Well, if this thread got created _after_ we started sync'ing
@@ -9008,13 +9107,13 @@ void Debugger::DetachThread(Thread *pRuntimeThread)
     if (CORDebuggerAttached())
     {
         // Send a detach thread event to the Right Side.
-        DebuggerIPCEvent * pEvent = m_pRCThread->GetIPCEventSendBuffer();
+        DebuggerIPCEvent * pEvent = GetIPCEventSendBuffer();
 
         InitIPCEvent(pEvent,
                      DB_IPCE_THREAD_DETACH,
                      pRuntimeThread);
 
-        m_pRCThread->SendIPCEvent();
+        SendIPCEvent();
 
         // Stop all Runtime threads
         TrapAllRuntimeThreads();
@@ -9060,7 +9159,9 @@ BOOL Debugger::SuspendComplete(bool isEESuspendedForGC)
     // If happen on managed thread, it must be doing the helper thread duty.
     //
 
+#ifndef FEATURE_SINGLE_THREADED_DEBUGGER
     _ASSERTE(ThreadStore::HoldingThreadStore() || IsAtProcessExit());
+#endif
 
     // We should be holding debugger lock m_mutex.
     _ASSERTE(ThreadHoldsLock());
@@ -9068,8 +9169,10 @@ BOOL Debugger::SuspendComplete(bool isEESuspendedForGC)
     // We can't throw here (we're in the middle of the runtime suspension logic).
     // But things below us throw. So we catch the exception, but then what state are we in?
 
+#ifndef FEATURE_SINGLE_THREADED_DEBUGGER
     if (!isEESuspendedForGC) {_ASSERTE((!g_pEEInterface->GetThread() || !g_pEEInterface->GetThread()->m_fPreemptiveGCDisabled)); }
     if (!isEESuspendedForGC) { _ASSERTE(ThisIsHelperThreadWorker()); }
+#endif
 
     STRESS_LOG0(LF_CORDB, LL_INFO10000, "D::SC: suspension complete\n");
 
@@ -9094,6 +9197,10 @@ BOOL Debugger::SuspendComplete(bool isEESuspendedForGC)
 
         SendSyncCompleteIPCEvent(isEESuspendedForGC); // sets m_stopped = true...
     }
+
+#ifdef FEATURE_SINGLE_THREADED_DEBUGGER
+    PauseSingleThreadedDebugger();
+#endif
 
     // Everything in the next scope is meant to mimic what we do UnlockForEventSending minus EnableEventHandling.
     // We do the EEH part when we get the Continue event.
@@ -9163,7 +9270,7 @@ void Debugger::AppDomainCreated(AppDomain * pRuntimeAppDomain)
     if (CORDebuggerAttached())
     {
         // Send a create appdomain event to the Right Side.
-        DebuggerIPCEvent * pEvent = m_pRCThread->GetIPCEventSendBuffer();
+        DebuggerIPCEvent * pEvent = GetIPCEventSendBuffer();
 
         InitIPCEvent(pEvent,
                      DB_IPCE_CREATE_APP_DOMAIN,
@@ -9171,7 +9278,7 @@ void Debugger::AppDomainCreated(AppDomain * pRuntimeAppDomain)
 
         // Only send a pointer to the AppDomain, the RS will get everything else via DAC.
         pEvent->AppDomainData.vmAppDomain.SetRawPtr(pRuntimeAppDomain);
-        m_pRCThread->SendIPCEvent();
+        SendIPCEvent();
 
         TrapAllRuntimeThreads();
     }
@@ -9204,7 +9311,7 @@ void Debugger::UnloadAssembly(Assembly * pAssembly)
     SENDIPCEVENT_BEGIN(this, thread);
 
     // Send the unload assembly event to the Right Side.
-    DebuggerIPCEvent* ipce = m_pRCThread->GetIPCEventSendBuffer();
+    DebuggerIPCEvent* ipce = GetIPCEventSendBuffer();
 
     InitIPCEvent(ipce,
                  DB_IPCE_UNLOAD_ASSEMBLY,
@@ -9270,12 +9377,12 @@ void Debugger::LoadModule(Module* pRuntimeModule,
     _ASSERTE(module->GetRuntimeModule() == pAssembly->GetModule());
 
     // Send a load module event to the Right Side.
-    ipce = m_pRCThread->GetIPCEventSendBuffer();
+    ipce = GetIPCEventSendBuffer();
     InitIPCEvent(ipce,DB_IPCE_LOAD_MODULE, pThread);
 
     ipce->LoadModuleData.vmAssembly.SetRawPtr(pAssembly);
 
-    m_pRCThread->SendIPCEvent();
+    SendIPCEvent();
 
     {
         // Stop all Runtime threads
@@ -9335,13 +9442,13 @@ void Debugger::SendRawUpdateModuleSymsEvent(Module *pRuntimeModule)
     _ASSERTE(module != NULL);
 
     DebuggerIPCEvent* ipce = NULL;
-    ipce = m_pRCThread->GetIPCEventSendBuffer();
+    ipce = GetIPCEventSendBuffer();
     InitIPCEvent(ipce, DB_IPCE_UPDATE_MODULE_SYMS,
                  g_pEEInterface->GetThread());
 
     ipce->UpdateModuleSymsData.vmAssembly.SetRawPtr((module ? module->GetAssembly() : NULL));
 
-    m_pRCThread->SendIPCEvent();
+    SendIPCEvent();
 }
 
 //
@@ -9437,11 +9544,11 @@ void Debugger::UnloadModule(Module* pRuntimeModule)
             module, module->GetRuntimeModule(), module->GetAssembly());
 
         // Send the unload module event to the Right Side.
-        DebuggerIPCEvent* ipce = m_pRCThread->GetIPCEventSendBuffer();
+        DebuggerIPCEvent* ipce = GetIPCEventSendBuffer();
         InitIPCEvent(ipce, DB_IPCE_UNLOAD_MODULE, thread);
         ipce->UnloadModuleData.vmAssembly.SetRawPtr((module ? module->GetAssembly() : NULL));
         ipce->UnloadModuleData.debuggerAssemblyToken.Set(pRuntimeModule->GetClassLoader()->GetAssembly());
-        m_pRCThread->SendIPCEvent();
+        SendIPCEvent();
 
         //
         // Cleanup the module (only for resources consumed when a debugger is attached)
@@ -9590,7 +9697,7 @@ void Debugger::SendClassLoadUnloadEvent (mdTypeDef classMetadataToken,
     LOG((LF_CORDB,LL_INFO10000, "D::SCLUE: Tok:0x%08x isLoad:0x%x Mod:%p\n",
         classMetadataToken, fIsLoadEvent, pClassDebuggerModule));
 
-    DebuggerIPCEvent * pEvent = m_pRCThread->GetIPCEventSendBuffer();
+    DebuggerIPCEvent * pEvent = GetIPCEventSendBuffer();
 
     BOOL fIsReflection = pClassDebuggerModule->GetRuntimeModule()->IsReflectionEmit();
 
@@ -9620,7 +9727,7 @@ void Debugger::SendClassLoadUnloadEvent (mdTypeDef classMetadataToken,
         pEvent->UnloadClass.classDebuggerAssemblyToken.Set(pAssembly);
     }
 
-    m_pRCThread->SendIPCEvent();
+    SendIPCEvent();
 
     if (fIsLoadEvent && fIsReflection)
     {
@@ -9821,7 +9928,7 @@ void Debugger::FuncEvalComplete(Thread* pThread, DebuggerEval *pDE)
     AppDomain *pDomain = AppDomain::GetCurrentDomain();
 
     // Send a func eval complete event to the Right Side.
-    DebuggerIPCEvent* ipce = m_pRCThread->GetIPCEventSendBuffer();
+    DebuggerIPCEvent* ipce = GetIPCEventSendBuffer();
     InitIPCEvent(ipce, DB_IPCE_FUNC_EVAL_COMPLETE, pThread);
 
     ipce->FuncEvalComplete.funcEvalKey = pDE->m_funcEvalKey;
@@ -9848,7 +9955,7 @@ void Debugger::FuncEvalComplete(Thread* pThread, DebuggerEval *pDE)
         static_cast<unsigned>(ipce->FuncEvalComplete.resultType.elementType),
         (CORDB_ADDRESS_TO_PTR(ipce->FuncEvalComplete.resultAddr))));
 
-    m_pRCThread->SendIPCEvent();
+    SendIPCEvent();
 
 #endif
 }
@@ -9862,16 +9969,25 @@ bool Debugger::ResumeThreads(AppDomain* pAppDomain)
     {
         NOTHROW;
         GC_NOTRIGGER;
+#ifndef FEATURE_SINGLE_THREADED_DEBUGGER
         PRECONDITION(ThisIsHelperThreadWorker());
+#endif
     }
     CONTRACTL_END;
 
+#ifdef FEATURE_SINGLE_THREADED_DEBUGGER
+    m_stopped = false;
+    m_trappingRuntimeThreads = FALSE;
+    m_RSRequestedSync = FALSE;
+    return true;
+#else
     // Okay, mark that we're not stopped anymore and let the
     // Runtime threads go...
     ReleaseAllRuntimeThreads(pAppDomain);
 
     // Return that we've continued the process.
     return true;
+#endif
 }
 
 
@@ -10110,11 +10226,13 @@ bool Debugger::HandleIPCEvent(DebuggerIPCEvent * pEvent)
         (pEvent->type & DB_IPCE_TYPE_MASK) == DB_IPCE_ATTACHING ||
         this->m_willBlockOnGarbageCollectionEvent)
     {
+#ifndef FEATURE_SINGLE_THREADED_DEBUGGER
         if (!this->m_willBlockOnGarbageCollectionEvent && !this->m_stopped)
         {
             lockedThreadStore = true;
             ThreadSuspend::LockThreadStore(ThreadSuspend::SUSPEND_FOR_DEBUGGER);
         }
+#endif
         dbgLockHolder.Acquire();
     }
     else
@@ -10130,7 +10248,9 @@ bool Debugger::HandleIPCEvent(DebuggerIPCEvent * pEvent)
     case DB_IPCE_ATTACHING:
         // In V3, Attach is atomic, meaning that there isn't a complex handshake back and forth between LS + RS.
         // the RS sends a single-attaching event and attaches at the first response from the Left-side.
+#ifndef FEATURE_SINGLE_THREADED_DEBUGGER
         StartCanaryThread();
+#endif
 
         if (m_jitAttachInProgress)
         {
@@ -10140,11 +10260,15 @@ bool Debugger::HandleIPCEvent(DebuggerIPCEvent * pEvent)
             MarkDebuggerAttachedInternal();
 
             // set the managed attach event so that waiting threads can continue
+#ifndef FEATURE_SINGLE_THREADED_DEBUGGER
             VERIFY(GetAttachEvent().Set());
+#endif
             break;
         }
 
+#ifndef FEATURE_SINGLE_THREADED_DEBUGGER
         VERIFY(GetAttachEvent().Set());
+#endif
 
         //
         // For regular (non-jit) attach, fall through to do an async break.
@@ -10189,13 +10313,17 @@ bool Debugger::HandleIPCEvent(DebuggerIPCEvent * pEvent)
             {
                 fContinue = ResumeThreads(pEvent->vmAppDomain.GetRawPtr());
 
+#ifndef FEATURE_SINGLE_THREADED_DEBUGGER
                 //
                 // Go ahead and release the TSL now that we're continuing. This ensures that we've held
                 // the thread store lock the entire time the Runtime was just stopped.
                 //
                 ThreadSuspend::UnlockThreadStore(FALSE, ThreadSuspend::SUSPEND_FOR_DEBUGGER);
+#endif
             }
+#ifndef FEATURE_SINGLE_THREADED_DEBUGGER
             GetCanary()->ClearCache();
+#endif
             break;
         }
 
@@ -11437,6 +11565,9 @@ LSendResponse:
 // go do helper duty instead of have the real helper do it.
 void Debugger::PollWaitingForHelper()
 {
+#ifdef FEATURE_SINGLE_THREADED_DEBUGGER
+    return;
+#endif
 
     LOG((LF_CORDB, LL_INFO10000, "PollWaitingForHelper() start\n"));
 
@@ -12228,16 +12359,16 @@ void Debugger::UnrecoverableError(HRESULT errorHR,
     //
     m_unrecoverableError = TRUE;
 
-    //
-    // Fill out the control block with the error.
-    // in-proc will find out when the function fails
-    //
+#ifndef FEATURE_SINGLE_THREADED_DEBUGGER
+    // Fill out the control block with the error. In-proc will find out when
+    // the function fails.
     DebuggerIPCControlBlock *pDCB = m_pRCThread->GetDCB();
 
     _ASSERTE(pDCB != NULL);
 
     pDCB->m_errorHR = errorHR;
     pDCB->m_errorCode = errorCode;
+#endif
 
     //
     // If we're told to, exit the thread.
@@ -12517,7 +12648,7 @@ HRESULT Debugger::ApplyChangesAndSendResult(DebuggerModule * pDebuggerModule,
 
     LOG((LF_ENC, LL_INFO100, "Debugger::ApplyChangesAndSendResult 2\n"));
 
-    DebuggerIPCEvent* event = m_pRCThread->GetIPCEventSendBuffer();
+    DebuggerIPCEvent* event = GetIPCEventSendBuffer();
     InitIPCEvent(event,
                  DB_IPCE_APPLY_CHANGES_RESULT,
                  NULL);
@@ -12525,7 +12656,7 @@ HRESULT Debugger::ApplyChangesAndSendResult(DebuggerModule * pDebuggerModule,
     event->ApplyChangesResult.hr = hr;
 
     // Send the result
-    return m_pRCThread->SendIPCEvent();
+    return SendIPCEvent();
 }
 
 //
@@ -14022,7 +14153,7 @@ void Debugger::SendRawLogMessage(
         return;
     }
 
-    ipce = m_pRCThread->GetIPCEventSendBuffer();
+    ipce = GetIPCEventSendBuffer();
 
     // Send a LogMessage event to the Right Side
     InitIPCEvent(ipce,
@@ -14035,7 +14166,7 @@ void Debugger::SendRawLogMessage(
     ipce->FirstLogMessage.szContent = PTR_TO_CORDB_ADDRESS(pMessage->GetUnicode());
     ipce->FirstLogMessage.cchContent = (ULONG)pMessage->GetCount();
 
-    m_pRCThread->SendIPCEvent();
+    SendIPCEvent();
 }
 
 // send a custom debugger notification to the RS
@@ -14069,7 +14200,7 @@ void Debugger::SendCustomDebuggerNotification(Thread * pThread,
 
     if (CORDebuggerAttached() && ShouldSendCustomNotification(pAssembly, classToken))
     {
-        DebuggerIPCEvent* ipce = m_pRCThread->GetIPCEventSendBuffer();
+        DebuggerIPCEvent* ipce = GetIPCEventSendBuffer();
         InitIPCEvent(ipce,
                      DB_IPCE_CUSTOM_NOTIFICATION,
                      curThread);
@@ -14080,7 +14211,7 @@ void Debugger::SendCustomDebuggerNotification(Thread * pThread,
         ipce->CustomNotification.vmAssembly = vmAssembly;
 
 
-        m_pRCThread->SendIPCEvent();
+        SendIPCEvent();
 
         // Stop all Runtime threads
         TrapAllRuntimeThreads();
@@ -14166,7 +14297,11 @@ HRESULT Debugger::FuncEvalSetup(DebuggerIPCE_FuncEvalInfo *pEvalInfo,
     // queue the DebuggerEval into the pending-eval table and let the suspend-resume logic dispatch
     // it: for exceptions via Debugger::ProcessAnyPendingEvals on continue, for the interpreter via
     // INTOP_BREAKPOINT after the debugger callback returns.
+#ifdef FEATURE_SINGLE_THREADED_DEBUGGER
+    bool funcEvalUsesHijack = false;
+#else
     bool funcEvalUsesHijack = !fInException;
+#endif
 #ifdef FEATURE_INTERPRETER
     if (funcEvalUsesHijack && filterContext != NULL)
     {
@@ -14176,6 +14311,7 @@ HRESULT Debugger::FuncEvalSetup(DebuggerIPCE_FuncEvalInfo *pEvalInfo,
     }
 #endif // FEATURE_INTERPRETER
 
+#ifndef FEATURE_SINGLE_THREADED_DEBUGGER
     if (funcEvalUsesHijack)
     {
         _ASSERTE(filterContext != NULL);
@@ -14186,6 +14322,7 @@ HRESULT Debugger::FuncEvalSetup(DebuggerIPCE_FuncEvalInfo *pEvalInfo,
             return CORDBG_E_FUNC_EVAL_BAD_START_POINT;
         }
     }
+#endif
 
     // Allocate the breakpoint instruction info only for hijacked evals. Non-hijack paths
     // (exception-time and interpreter) signal completion via FuncEvalComplete on the pending-eval
@@ -14251,6 +14388,7 @@ HRESULT Debugger::FuncEvalSetup(DebuggerIPCE_FuncEvalInfo *pEvalInfo,
 
     // Hijacked evals rewrite the thread's native context to enter FuncEvalHijack when execution resumes.
     // Non-hijack evals are queued in the pending-eval table and dispatched from the resume path.
+#ifndef FEATURE_SINGLE_THREADED_DEBUGGER
     if (funcEvalUsesHijack)
     {
         _ASSERTE(filterContext != NULL);
@@ -14291,6 +14429,7 @@ HRESULT Debugger::FuncEvalSetup(DebuggerIPCE_FuncEvalInfo *pEvalInfo,
         g_pDebugger->IncThreadsAtUnsafePlaces();
     }
     else
+#endif
     {
         HRESULT hr = CheckInitPendingFuncEvalTable();
 
@@ -14845,7 +14984,7 @@ HRESULT Debugger::NameChangeEvent(AppDomain *pAppDomain, Thread *pThread)
     if (CORDebuggerAttached())
     {
 
-            DebuggerIPCEvent* ipce = m_pRCThread->GetIPCEventSendBuffer();
+            DebuggerIPCEvent* ipce = GetIPCEventSendBuffer();
         InitIPCEvent(ipce,
                      DB_IPCE_NAME_CHANGE,
                      curThread);
@@ -14863,7 +15002,7 @@ HRESULT Debugger::NameChangeEvent(AppDomain *pAppDomain, Thread *pThread)
             ipce->NameChange.vmThread.SetRawPtr(pThread);
         }
 
-        m_pRCThread->SendIPCEvent();
+        SendIPCEvent();
 
         // Stop all Runtime threads
         TrapAllRuntimeThreads();
@@ -14907,13 +15046,13 @@ BOOL Debugger::SendCtrlCToDebugger(DWORD dwCtrlType)
 
     if (CORDebuggerAttached())
     {
-        DebuggerIPCEvent* ipce = m_pRCThread->GetIPCEventSendBuffer();
+        DebuggerIPCEvent* ipce = GetIPCEventSendBuffer();
         InitIPCEvent(ipce,
                      DB_IPCE_CONTROL_C_EVENT,
                      pThread);
 
         // The RS doesn't do anything with dwCtrlType
-        m_pRCThread->SendIPCEvent();
+        SendIPCEvent();
 
         // Stop all Runtime threads
         TrapAllRuntimeThreads();
@@ -14981,6 +15120,9 @@ BOOL Debugger::IsThreadContextInvalid(Thread *pThread, CONTEXT *pCtx)
     }
     CONTRACTL_END;
 
+#ifdef FEATURE_SINGLE_THREADED_DEBUGGER
+    return TRUE;
+#else
     BOOL invalid = FALSE;
 
     // Get the thread context.
@@ -15051,6 +15193,7 @@ BOOL Debugger::IsThreadContextInvalid(Thread *pThread, CONTEXT *pCtx)
     }
 
     return invalid;
+#endif
 }
 
 //

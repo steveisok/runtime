@@ -103,23 +103,6 @@ extern "C" void RhpInitialInterfaceDispatch()
     PORTABILITY_ASSERT("RhpInitialInterfaceDispatch is not implemented on wasm");
 }
 
-unsigned FuncEvalFrame::GetFrameAttribs_Impl(void)
-{
-    PORTABILITY_ASSERT("FuncEvalFrame::GetFrameAttribs_Impl is not implemented on wasm");
-    return 0;
-}
-
-TADDR FuncEvalFrame::GetReturnAddressPtr_Impl()
-{
-    PORTABILITY_ASSERT("FuncEvalFrame::GetReturnAddressPtr_Impl is not implemented on wasm");
-    return 0;
-}
-
-void FuncEvalFrame::UpdateRegDisplay_Impl(const PREGDISPLAY pRD, bool updateFloats)
-{
-    PORTABILITY_ASSERT("FuncEvalFrame::UpdateRegDisplay_Impl is not implemented on wasm");
-}
-
 void InlinedCallFrame::UpdateRegDisplay_Impl(const PREGDISPLAY pRD, bool updateFloats)
 {
     CONTRACTL
@@ -513,12 +496,6 @@ void InitJITHelpers1()
     /* no-op WASM-TODO do we need to do anything for the interpreter? */
 }
 
-extern "C" HRESULT __cdecl CorDBGetInterface(DebugInterface** rcInterface)
-{
-    PORTABILITY_ASSERT("CorDBGetInterface is not implemented on wasm");
-    return 0;
-}
-
 extern "C" void RhpInterfaceDispatch1()
 {
     PORTABILITY_ASSERT("RhpInterfaceDispatch1 is not implemented on wasm");
@@ -678,9 +655,6 @@ void _DacGlobals::Initialize()
 {
     /* no-op on wasm */
 }
-
-// Incorrectly typed temporary symbol to satisfy the linker.
-int g_pDebugger;
 
 void InvokeCalliStub(PCODE ftn, InterpreterCalliCookie cookie, int8_t *pArgs, int8_t *pRet, Object** pContinuationRet)
 {

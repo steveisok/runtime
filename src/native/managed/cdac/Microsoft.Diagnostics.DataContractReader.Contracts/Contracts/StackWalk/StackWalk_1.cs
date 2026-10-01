@@ -1080,6 +1080,7 @@ internal partial class StackWalk_1 : IStackWalk
                 or RuntimeInfoArchitecture.RiscV64
                 or RuntimeInfoArchitecture.LoongArch64 => CallerStackPointer(handle),
             RuntimeInfoArchitecture.X86 => ComputeX86FramePointer(handle),
+            RuntimeInfoArchitecture.Wasm => handle.Context.StackPointer,
             _ => throw new InvalidOperationException($"GetRuntimeFramePointer is not supported on {arch}"),
         };
     }

@@ -1974,8 +1974,11 @@ void DebuggerMethodInfo::CreateDJIsForNativeBlobs(AppDomain * pAppDomain, Method
     }
     CONTRACTL_END;
 
-    // If we're not stopped, it's possible new native blobs are being created underneath us.
+    // A single-threaded debugger serializes code creation and inspection on the same thread.
+#ifndef FEATURE_SINGLE_THREADED_DEBUGGER
+    // Otherwise, if we're not stopped, new native blobs may be created underneath us.
     _ASSERTE(g_pDebugger->IsStopped() || pMethodDescFilter != NULL);
+#endif
 
     if (pMethodDescFilter != NULL)
     {

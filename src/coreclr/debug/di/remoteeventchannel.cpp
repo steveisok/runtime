@@ -63,7 +63,10 @@ public:
     virtual HRESULT SendEventToLeftSide(DebuggerIPCEvent * pEvent, SIZE_T eventSize);
 
     // Get the reply from the LS for a previously sent IPC event.
-    virtual HRESULT GetReplyFromLeftSide(DebuggerIPCEvent * pReplyEvent, SIZE_T eventSize);
+    virtual HRESULT GetReplyFromLeftSide(
+        DebuggerIPCEvent * pReplyEvent,
+        SIZE_T eventSize,
+        DWORD timeout);
 
 
 
@@ -300,7 +303,10 @@ HRESULT RemoteEventChannel::SendEventToLeftSide(DebuggerIPCEvent * pEvent, SIZE_
 // Get the reply from the LS for a previously sent IPC event.
 //
 // virtual
-HRESULT RemoteEventChannel::GetReplyFromLeftSide(DebuggerIPCEvent * pReplyEvent, SIZE_T eventSize)
+HRESULT RemoteEventChannel::GetReplyFromLeftSide(
+    DebuggerIPCEvent * pReplyEvent,
+    SIZE_T eventSize,
+    DWORD)
 {
     // Delegate to the transport.
     m_pTransport->GetNextEvent(pReplyEvent, (DWORD)eventSize);

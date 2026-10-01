@@ -5,6 +5,7 @@ add_definitions(-DFEATURE_NO_HOST)
 include_directories(BEFORE ${VM_DIR})
 include_directories(BEFORE ${VM_DIR}/${ARCH_SOURCES_DIR})
 include_directories(BEFORE ${CMAKE_CURRENT_SOURCE_DIR})
+include_directories(${RUNTIME_DIR})
 
 set(CORDBEE_SOURCES_DAC_AND_WKS
   controller.cpp
@@ -30,9 +31,12 @@ set(CORDBEE_SOURCES_WKS
   canary.cpp
   shared.cpp
   frameinfo.cpp
-  dactable.cpp
   ${ARCH_SOURCES_DIR}/primitives.cpp
 )
+
+if(NOT CLR_CMAKE_TARGET_ARCH_WASM)
+  list(APPEND CORDBEE_SOURCES_WKS dactable.cpp)
+endif()
 
 set(CORDBEE_HEADERS_WKS
   ${CORDBEE_HEADERS_DAC_AND_WKS}
@@ -48,7 +52,9 @@ set(CORDBEE_HEADERS_DAC
   ${CORDBEE_HEADERS_DAC_AND_WKS}
 )
 
-list(APPEND CORDBEE_SOURCES_WKS ${ARCH_SOURCES_DIR}/walker.cpp)
+if(NOT CLR_CMAKE_TARGET_ARCH_WASM)
+  list(APPEND CORDBEE_SOURCES_WKS ${ARCH_SOURCES_DIR}/walker.cpp)
+endif()
 
 if(FEATURE_INTERPRETER)
   list(APPEND CORDBEE_SOURCES_WKS interpreterwalker.cpp)
@@ -69,5 +75,7 @@ endif (CLR_CMAKE_TARGET_WIN32)
 
 set(CORDBEE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
-add_subdirectory(dac)
+if(NOT CLR_CMAKE_TARGET_ARCH_WASM)
+  add_subdirectory(dac)
+endif()
 add_subdirectory(wks)

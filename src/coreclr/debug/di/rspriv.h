@@ -2961,7 +2961,7 @@ class CordbProcess :
     public IProcessShimHooks
 {
     // Ctor is private. Use OpenVirtualProcess instead.
-    CordbProcess(ULONG64 clrInstanceId, IUnknown * pDataTarget, HMODULE hDacModule,  Cordb * pCordb, const ProcessDescriptor * pProcessDescriptor, ShimProcess * pShim);
+    CordbProcess(ULONG64 clrInstanceId, IUnknown * pDataTarget, HMODULE hDacModule, CLRDATA_ADDRESS contractDescriptorAddress, Cordb * pCordb, const ProcessDescriptor * pProcessDescriptor, ShimProcess * pShim);
 
 public:
 
@@ -2980,6 +2980,7 @@ public:
     static HRESULT OpenVirtualProcess(ULONG64 clrInstanceId,
                                       IUnknown * pDataTarget,
                                       HMODULE hDacModule,
+                                      CLRDATA_ADDRESS contractDescriptorAddress,
                                       Cordb * pCordb,
                                       const ProcessDescriptor * pProcessDescriptor,
                                       ShimProcess * pShim,
@@ -3213,6 +3214,11 @@ public:
     void QueueManagedAttachIfNeeded();
     void QueueManagedAttachIfNeededWorker();
     HRESULT QueueManagedAttach();
+    HRESULT SendManagedAttach();
+    HRESULT SendManagedAttachEvent();
+    HRESULT SendManagedContinue();
+    HRESULT ContinueShimless();
+    bool TakeContinueAfterCallback();
 
     void DetachShim();
 
@@ -3409,10 +3415,11 @@ public:
     HRESULT SendIPCEvent(DebuggerIPCEvent *event, SIZE_T eventSize)
     {
         // @dbgtodo - eventually remove this when all IPC events are gone.
-        // In V3 paths, we can't send IPC events.
-        if (GetShim() == NULL)
+        // Dump-only V3 processes have no event channel, but live supplied transports do.
+        if (m_pEventChannel == NULL)
         {
-            STRESS_LOG1(LF_CORDB, LL_INFO1000, "!! Can't send IPC event in V3. %s", IPCENames::GetName(event->type));
+            STRESS_LOG1(LF_CORDB, LL_INFO1000, "!! Can't send IPC event without an event channel. %s",
+                IPCENames::GetName(event->type));
             return E_NOTIMPL;
         }
         _ASSERTE(m_cordb != NULL);
@@ -3602,6 +3609,8 @@ public:
 
     // Get the data-target, which provides access to the debuggee.
     ICorDebugDataTarget * GetDataTarget();
+
+    ULONG32 GetTargetPointerSize();
 
     BOOL IsDacInitialized();
 
@@ -3803,6 +3812,7 @@ private:
     // In that case, we can lazily initialize it in code:CordbProcess::CopyManagedEventFromTarget.
     // This is just used for backwards compat.
     CORDB_ADDRESS         m_clrInstanceId;
+    CLRDATA_ADDRESS       m_contractDescriptorAddress;
 
     // List of things that get neutered on process exit and Continue respectively.
     NeuterList            m_ExitNeuterList;
@@ -3995,6 +4005,7 @@ public:
     void GetEventBlock(BOOL * pfBlockExists);
 
     IEventChannel * GetEventChannel();
+    WaitEvent * GetLeftSideEventAvailableHandle();
 
     bool SupportsVersion(CorDebugInterfaceVersion featureVersion);
 
@@ -4018,6 +4029,7 @@ private:
     HANDLE m_hHelperThread;
 
     DebuggerIPCEventType  m_dispatchedEvent;   // what event are we currently dispatching?
+    bool m_continueAfterCallback;
 
     RSLock            m_StopGoLock;
 

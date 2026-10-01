@@ -369,6 +369,8 @@ add_subdirectory(md)
 
 if (NOT CLR_CMAKE_TARGET_ARCH_WASM)
   add_subdirectory(debug)
+else()
+  add_subdirectory(debug/ee)
 endif()
 
 add_subdirectory(binder)

@@ -158,6 +158,31 @@ internal sealed partial class ExecutionManagerCore<T> : IExecutionManager
 
         internal static RangeSection Find(Target target, Data.RangeSectionMap topRangeSectionMap, ExecutionManagerHelpers.RangeSectionMap rangeSectionLookup, TargetCodePointer jittedCodeAddress)
         {
+            if (IsWasmVirtualIP(target, jittedCodeAddress))
+            {
+                if (!target.TryReadGlobalPointer(Constants.Globals.VirtualIPRangeList, out TargetPointer? listHeadSlot))
+                    return new RangeSection();
+
+                TargetPointer current = target.ReadPointer(listHeadSlot.Value);
+                while (current != TargetPointer.Null)
+                {
+                    Data.RangeSection virtualRange = target.ProcessedData.GetOrAdd<Data.RangeSection>(current);
+                    if (virtualRange.RangeBegin.Value <= jittedCodeAddress.Value &&
+                        jittedCodeAddress.Value < virtualRange.RangeEndOpen.Value)
+                    {
+                        return virtualRange.NextForDelete == TargetPointer.Null
+                            ? new RangeSection(virtualRange)
+                            : new RangeSection();
+                    }
+
+                    Data.VirtualIPRangeSection virtualIPRangeSection =
+                        target.ProcessedData.GetOrAdd<Data.VirtualIPRangeSection>(current);
+                    current = virtualIPRangeSection.Next;
+                }
+
+                return new RangeSection();
+            }
+
             TargetPointer rangeSectionFragmentPtr = rangeSectionLookup.FindFragment(target, topRangeSectionMap, jittedCodeAddress);
             // The lowest level of the range section map covers a large address space which may contain multiple small fragments.
             // Iterate over them to find the one that contains the jitted code address.
@@ -181,6 +206,17 @@ internal sealed partial class ExecutionManagerCore<T> : IExecutionManager
                 return new RangeSection();
             }
             return new RangeSection(rangeSection);
+        }
+
+        private static bool IsWasmVirtualIP(Target target, TargetCodePointer codePointer)
+        {
+            if (target.Contracts.RuntimeInfo.GetTargetArchitecture() != RuntimeInfoArchitecture.Wasm)
+                return false;
+
+            ulong mask = target.PointerSize == sizeof(uint)
+                ? 0x80000001
+                : 0x8000000000000001;
+            return (codePointer.Value & mask) == mask;
         }
     }
 

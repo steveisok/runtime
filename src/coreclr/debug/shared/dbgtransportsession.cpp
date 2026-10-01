@@ -9,7 +9,7 @@
 #include <minipal/time.h>
 #endif // RIGHT_SIDE_COMPILE
 
-#if (!defined(RIGHT_SIDE_COMPILE) && defined(FEATURE_DBGIPC_TRANSPORT_VM)) || (defined(RIGHT_SIDE_COMPILE) && defined(FEATURE_DBGIPC_TRANSPORT_DI))
+#if (!defined(RIGHT_SIDE_COMPILE) && defined(FEATURE_DBGIPC_TRANSPORT_VM)) || (defined(RIGHT_SIDE_COMPILE) && (defined(FEATURE_DBGIPC_TRANSPORT_DI) || defined(FEATURE_SUPPLIED_DBGIPC_TRANSPORT_DI)))
 
 // This is the entry type for the IPC event queue owned by the transport.
 // Each entry contains the multiplexing type of the IPC event plus the
@@ -20,6 +20,72 @@ public:
     IPCEventType     m_type;
     BYTE             m_event[CorDBIPC_BUFFER_SIZE];     // buffer for the IPC event
 };
+
+static constexpr DWORD TransportEventHeaderSize = 40;
+static constexpr DWORD TransportEventTypeOffset = 0;
+static constexpr DWORD TransportProcessIdOffset = 4;
+static constexpr DWORD TransportThreadIdOffset = 8;
+static constexpr DWORD TransportAppDomainOffset = 12;
+static constexpr DWORD TransportThreadOffset = 20;
+static constexpr DWORD TransportHResultOffset = 28;
+static constexpr DWORD TransportReplyRequiredOffset = 32;
+static constexpr DWORD TransportAsyncSendOffset = 33;
+
+static bool MarshalEventToTransport(
+    DebuggerIPCEvent * event,
+    BYTE * buffer,
+    DWORD eventSize)
+{
+    DWORD nativeHeaderSize = offsetof(DebuggerIPCEvent, MetadataUpdateData);
+    if (eventSize < TransportEventHeaderSize ||
+        eventSize - TransportEventHeaderSize > CorDBIPC_BUFFER_SIZE - nativeHeaderSize)
+    {
+        return false;
+    }
+
+    memset(buffer, 0, eventSize);
+    memcpy(buffer + TransportEventTypeOffset, &event->type, sizeof(event->type));
+    memcpy(buffer + TransportProcessIdOffset, &event->processId, sizeof(event->processId));
+    memcpy(buffer + TransportThreadIdOffset, &event->threadId, sizeof(event->threadId));
+    memcpy(buffer + TransportAppDomainOffset, &event->vmAppDomain, sizeof(event->vmAppDomain));
+    memcpy(buffer + TransportThreadOffset, &event->vmThread, sizeof(event->vmThread));
+    memcpy(buffer + TransportHResultOffset, &event->hr, sizeof(event->hr));
+    memcpy(buffer + TransportReplyRequiredOffset, &event->replyRequired, sizeof(event->replyRequired));
+    memcpy(buffer + TransportAsyncSendOffset, &event->asyncSend, sizeof(event->asyncSend));
+    memcpy(
+        buffer + TransportEventHeaderSize,
+        reinterpret_cast<BYTE *>(event) + nativeHeaderSize,
+        eventSize - TransportEventHeaderSize);
+    return true;
+}
+
+static bool MarshalEventFromTransport(
+    const BYTE * buffer,
+    DWORD eventSize,
+    DebuggerIPCEvent * event)
+{
+    DWORD nativeHeaderSize = offsetof(DebuggerIPCEvent, MetadataUpdateData);
+    if (eventSize < TransportEventHeaderSize ||
+        eventSize - TransportEventHeaderSize > CorDBIPC_BUFFER_SIZE - nativeHeaderSize)
+    {
+        return false;
+    }
+
+    memset(event, 0, CorDBIPC_BUFFER_SIZE);
+    memcpy(&event->type, buffer + TransportEventTypeOffset, sizeof(event->type));
+    memcpy(&event->processId, buffer + TransportProcessIdOffset, sizeof(event->processId));
+    memcpy(&event->threadId, buffer + TransportThreadIdOffset, sizeof(event->threadId));
+    memcpy(&event->vmAppDomain, buffer + TransportAppDomainOffset, sizeof(event->vmAppDomain));
+    memcpy(&event->vmThread, buffer + TransportThreadOffset, sizeof(event->vmThread));
+    memcpy(&event->hr, buffer + TransportHResultOffset, sizeof(event->hr));
+    memcpy(&event->replyRequired, buffer + TransportReplyRequiredOffset, sizeof(event->replyRequired));
+    memcpy(&event->asyncSend, buffer + TransportAsyncSendOffset, sizeof(event->asyncSend));
+    memcpy(
+        reinterpret_cast<BYTE *>(event) + nativeHeaderSize,
+        buffer + TransportEventHeaderSize,
+        eventSize - TransportEventHeaderSize);
+    return true;
+}
 
 #define INITGUID
 #include <guiddef.h>
@@ -40,6 +106,9 @@ HRESULT ConnectToChannel(
 //
 // See DbgTransportSession.h for further detailed comments.
 //
+
+const DWORD DbgTransportSession::kCurrentMajorVersion;
+const DWORD DbgTransportSession::kCurrentMinorVersion;
 
 #ifndef RIGHT_SIDE_COMPILE
 // The one and only transport instance for the left side. Allocated and initialized during EE startup (from
@@ -63,6 +132,8 @@ DbgTransportSession::~DbgTransportSession()
         delete m_rghEventReadyEvent[IPCET_DebugEvent];
     if (m_pEventBuffers)
         delete [] m_pEventBuffers;
+    if (m_pbCooperativeReceiveBuffer)
+        delete [] m_pbCooperativeReceiveBuffer;
 
 #ifdef RIGHT_SIDE_COMPILE
     if (m_fInitSessionStateCondition)
@@ -87,13 +158,34 @@ DbgTransportSession::~DbgTransportSession()
 // once the session is established.
 #ifdef RIGHT_SIDE_COMPILE
 HRESULT DbgTransportSession::Init(const ProcessDescriptor& pd, const WaitHandle& processExited)
+{
+    return Init(pd, processExited, nullptr);
+}
+
+HRESULT DbgTransportSession::Init(
+    const ProcessDescriptor& pd,
+    const WaitHandle& processExited,
+    IDebugChannel* channel)
 #else // RIGHT_SIDE_COMPILE
 HRESULT DbgTransportSession::Init(DebuggerIPCControlBlock *pDCB)
+{
+    return Init(pDCB, nullptr);
+}
+
+HRESULT DbgTransportSession::InitCooperative(DebuggerIPCControlBlock* pDCB, IDebugChannel* channel)
+{
+    m_fCooperative = true;
+    return Init(pDCB, channel);
+}
+
+HRESULT DbgTransportSession::Init(DebuggerIPCControlBlock* pDCB, IDebugChannel* channel)
 #endif // RIGHT_SIDE_COMPILE
 {
     _ASSERTE(m_eState == SS_Closed);
 
     m_ref = 1;
+    m_fChannelSupplied = false;
+    m_fSuppliedChannelUsed = false;
 
     // Initialize all per-session state variables.
     InitSessionState();
@@ -125,11 +217,22 @@ HRESULT DbgTransportSession::Init(DebuggerIPCControlBlock *pDCB)
 #else // RIGHT_SIDE_COMPILE
     m_pDCB = pDCB;
 
-    HRESULT hr = CreateChannel(ProcessDescriptor::FromCurrentProcess(), &m_channel);
-    if (FAILED(hr))
-        return hr;
-
 #endif // RIGHT_SIDE_COMPILE
+
+    if (channel != nullptr)
+    {
+        m_channel = channel;
+        (void)m_channel->AddRef();
+        m_fChannelSupplied = true;
+    }
+#ifndef RIGHT_SIDE_COMPILE
+    else
+    {
+        HRESULT hr = CreateChannel(ProcessDescriptor::FromCurrentProcess(), &m_channel);
+        if (FAILED(hr))
+            return hr;
+    }
+#endif // !RIGHT_SIDE_COMPILE
 
     // Allocate some buffers to receive incoming events. The initial number is chosen arbitrarily, tune as
     // necessary. This array will need to grow if it fills with unread events (it takes our client a little
@@ -159,6 +262,22 @@ HRESULT DbgTransportSession::Init(DebuggerIPCControlBlock *pDCB)
         return E_OUTOFMEMORY;
     }
 
+    if (m_fCooperative)
+    {
+        _ASSERTE(m_fChannelSupplied);
+
+        BOOL isConnected = FALSE;
+        HRESULT hr = m_channel->WaitForConnection(0, &isConnected);
+        if (FAILED(hr) || !isConnected)
+        {
+            return FAILED(hr) ? hr : HRESULT_FROM_WIN32(ERROR_NOT_READY);
+        }
+
+        m_fSuppliedChannelUsed = true;
+        SetSessionState(SS_Opening);
+        return S_OK;
+    }
+
     // Start the transport thread which handles forming and re-forming connections, driving the session
     // state to SS_Open and receiving and initially processing all incoming traffic.
     AddRef();
@@ -186,7 +305,7 @@ void DbgTransportSession::Shutdown()
     // prepares). Don't do any transport related stuff unless this was allocated (which can happen if
     // Shutdown() is called after an Init() failure).
 
-    if (m_hTransportThread)
+    if (m_hTransportThread || m_fCooperative)
     {
         // From SS_Open state try a graceful disconnect.
         if (m_eState == SS_Open)
@@ -219,6 +338,372 @@ void DbgTransportSession::Shutdown()
 }
 
 #ifndef RIGHT_SIDE_COMPILE
+
+void MarshalDCBTransportToDCB(DebuggerIPCControlBlockTransport* pIn, DebuggerIPCControlBlock* pOut);
+void MarshalDCBToDCBTransport(DebuggerIPCControlBlock* pIn, DebuggerIPCControlBlockTransport* pOut);
+
+bool DbgTransportSession::HasPendingEvent()
+{
+    TransportLockHolder lock(m_sStateLock);
+    return m_cValidEventBuffers != 0;
+}
+
+bool DbgTransportSession::IsOpen()
+{
+    TransportLockHolder lock(m_sStateLock);
+    return m_eState == SS_Open;
+}
+
+HRESULT DbgTransportSession::ProcessIncomingBytes(const BYTE* data, DWORD size)
+{
+    const DWORD maxDataBlockSize = 64 * 1024 * 1024;
+
+    if (size != 0 && data == nullptr)
+    {
+        return E_POINTER;
+    }
+    if (!m_fCooperative || m_eState == SS_Closed)
+    {
+        return E_UNEXPECTED;
+    }
+    if (size > maxDataBlockSize ||
+        m_cbCooperativeReceiveBuffer > maxDataBlockSize - size)
+    {
+        return HRESULT_FROM_WIN32(ERROR_ARITHMETIC_OVERFLOW);
+    }
+
+    DWORD requiredCapacity = m_cbCooperativeReceiveBuffer + size;
+    if (requiredCapacity > m_cbCooperativeReceiveBufferCapacity)
+    {
+        DWORD newCapacity = max(requiredCapacity, max(m_cbCooperativeReceiveBufferCapacity * 2, (DWORD)4096));
+        if (newCapacity > maxDataBlockSize)
+        {
+            newCapacity = requiredCapacity;
+        }
+
+        BYTE* newBuffer = new (nothrow) BYTE[newCapacity];
+        if (newBuffer == nullptr)
+        {
+            return E_OUTOFMEMORY;
+        }
+
+        if (m_cbCooperativeReceiveBuffer != 0)
+        {
+            memcpy(newBuffer, m_pbCooperativeReceiveBuffer, m_cbCooperativeReceiveBuffer);
+        }
+        delete [] m_pbCooperativeReceiveBuffer;
+        m_pbCooperativeReceiveBuffer = newBuffer;
+        m_cbCooperativeReceiveBufferCapacity = newCapacity;
+    }
+
+    if (size != 0)
+    {
+        memcpy(
+            m_pbCooperativeReceiveBuffer + m_cbCooperativeReceiveBuffer,
+            data,
+            size);
+        m_cbCooperativeReceiveBuffer += size;
+    }
+
+    while (m_cbCooperativeReceiveBuffer >= sizeof(MessageHeader))
+    {
+        MessageHeader header;
+        memcpy(&header, m_pbCooperativeReceiveBuffer, sizeof(header));
+
+        DWORD dataSize = header.m_cbDataBlock;
+        if (dataSize > maxDataBlockSize - sizeof(MessageHeader))
+        {
+            SetSessionState(SS_Closed);
+            return E_INVALIDARG;
+        }
+
+        DWORD messageSize = sizeof(MessageHeader) + dataSize;
+        if (m_cbCooperativeReceiveBuffer < messageSize)
+        {
+            break;
+        }
+
+        HRESULT hr = ProcessCooperativeMessage(
+            header,
+            m_pbCooperativeReceiveBuffer + sizeof(MessageHeader));
+        if (FAILED(hr))
+        {
+            SetSessionState(SS_Closed);
+            return hr;
+        }
+
+        m_cbCooperativeReceiveBuffer -= messageSize;
+        if (m_cbCooperativeReceiveBuffer != 0)
+        {
+            memmove(
+                m_pbCooperativeReceiveBuffer,
+                m_pbCooperativeReceiveBuffer + messageSize,
+                m_cbCooperativeReceiveBuffer);
+        }
+    }
+
+    return S_OK;
+}
+
+HRESULT DbgTransportSession::ProcessCooperativeMessage(
+    const MessageHeader& incomingHeader,
+    const BYTE* data)
+{
+    MessageHeader header = incomingHeader;
+    DbgTransportLogMessageReceived(&header);
+
+    if (m_eState == SS_Opening)
+    {
+        if (header.m_eType != MT_SessionRequest ||
+            header.TypeSpecificData.VersionInfo.m_dwMajorVersion != kCurrentMajorVersion ||
+            static_cast<DWORD>(header.m_cbDataBlock) != sizeof(SessionRequestData))
+        {
+            return CORDBG_E_INCOMPATIBLE_PROTOCOL;
+        }
+
+        const SessionRequestData* request = reinterpret_cast<const SessionRequestData*>(data);
+        memcpy(&m_sSessionID, &request->m_sSessionID, sizeof(m_sSessionID));
+        DWORD requestedMinorVersion = header.TypeSpecificData.VersionInfo.m_dwMinorVersion;
+        m_dwMinorVersion =
+            requestedMinorVersion < kCurrentMinorVersion ? requestedMinorVersion : kCurrentMinorVersion;
+
+        MessageHeader accept;
+        memset(&accept, 0, sizeof(accept));
+        accept.m_eType = MT_SessionAccept;
+        accept.TypeSpecificData.VersionInfo.m_dwMajorVersion = kCurrentMajorVersion;
+        accept.TypeSpecificData.VersionInfo.m_dwMinorVersion = m_dwMinorVersion;
+        if (!SendBlock(reinterpret_cast<PBYTE>(&accept), sizeof(accept)))
+        {
+            return E_FAIL;
+        }
+
+        {
+            TransportLockHolder lock(m_sStateLock);
+            Message* message = m_pSendQueueFirst;
+            while (message != nullptr)
+            {
+                if (!SendBlock(
+                        reinterpret_cast<PBYTE>(&message->m_sHeader),
+                        sizeof(MessageHeader)) ||
+                    (message->m_pbDataBlock != nullptr &&
+                     !SendBlock(message->m_pbDataBlock, message->m_cbDataBlock)))
+                {
+                    return E_FAIL;
+                }
+                message = message->m_pNext;
+            }
+            SetSessionStateUnderLock(SS_Open);
+        }
+
+        return S_OK;
+    }
+
+    if (m_eState != SS_Open)
+    {
+        return E_UNEXPECTED;
+    }
+
+    DWORD messageId = header.m_dwId;
+    DWORD replyId = header.m_dwReplyId;
+    DWORD lastSeenId = header.m_dwLastSeenId;
+    if ((messageId <= m_dwLastMessageIdSeen && messageId != 0) ||
+        (replyId >= m_dwNextMessageId && replyId != 0) ||
+        (lastSeenId >= m_dwNextMessageId && lastSeenId != 0))
+    {
+        return E_INVALIDARG;
+    }
+
+    FlushSendQueue(header.m_dwLastSeenId);
+
+    bool replyRequired = false;
+    PBYTE replyData = nullptr;
+    DWORD replyDataSize = 0;
+    DebuggerIPCControlBlockTransport dcbt;
+    HRESULT hr = S_OK;
+
+    switch (header.m_eType)
+    {
+        case MT_SessionClose:
+        {
+            TransportLockHolder lock(m_sStateLock);
+            if (m_pSendQueueFirst != nullptr || m_pSendQueueLast != nullptr)
+            {
+                return E_UNEXPECTED;
+            }
+
+            InitSessionState();
+            SetSessionStateUnderLock(SS_Opening);
+            return S_OK;
+        }
+
+        case MT_Event:
+            hr = QueueEvent(header, data);
+            break;
+
+        case MT_ReadMemory:
+        {
+            replyRequired = true;
+            PBYTE leftSideBuffer;
+            hr = TryGetLeftSideBuffer(header, &leftSideBuffer)
+                ? CheckBufferAccess(
+                    leftSideBuffer,
+                    header.TypeSpecificData.MemoryAccess.m_cbLeftSideBuffer,
+                    false)
+                : E_INVALIDARG;
+            header.TypeSpecificData.MemoryAccess.m_hrResult = hr;
+            if (SUCCEEDED(hr))
+            {
+                replyData = leftSideBuffer;
+                replyDataSize = header.TypeSpecificData.MemoryAccess.m_cbLeftSideBuffer;
+            }
+            hr = S_OK;
+            break;
+        }
+
+        case MT_WriteMemory:
+        {
+            if (header.m_cbDataBlock != header.TypeSpecificData.MemoryAccess.m_cbLeftSideBuffer)
+            {
+                return E_INVALIDARG;
+            }
+            replyRequired = true;
+            PBYTE leftSideBuffer;
+            hr = TryGetLeftSideBuffer(header, &leftSideBuffer)
+                ? CheckBufferAccess(
+                    leftSideBuffer,
+                    header.TypeSpecificData.MemoryAccess.m_cbLeftSideBuffer,
+                    true)
+                : E_INVALIDARG;
+            header.TypeSpecificData.MemoryAccess.m_hrResult = hr;
+            if (SUCCEEDED(hr))
+            {
+                memcpy(
+                    leftSideBuffer,
+                    data,
+                    header.TypeSpecificData.MemoryAccess.m_cbLeftSideBuffer);
+            }
+            hr = S_OK;
+            break;
+        }
+
+        case MT_GetDCB:
+            replyRequired = true;
+            MarshalDCBToDCBTransport(m_pDCB, &dcbt);
+            replyData = reinterpret_cast<PBYTE>(&dcbt);
+            replyDataSize = sizeof(dcbt);
+            break;
+
+        case MT_SetDCB:
+            if (static_cast<DWORD>(header.m_cbDataBlock) != sizeof(dcbt))
+            {
+                return E_INVALIDARG;
+            }
+            replyRequired = true;
+            memcpy(&dcbt, data, sizeof(dcbt));
+            MarshalDCBTransportToDCB(&dcbt, m_pDCB);
+            break;
+
+        case MT_SessionRequest:
+        case MT_SessionAccept:
+        case MT_SessionReject:
+        case MT_SessionResync:
+        default:
+            return E_INVALIDARG;
+    }
+
+    if (FAILED(hr))
+    {
+        return hr;
+    }
+
+    if (replyRequired)
+    {
+        Message reply;
+        reply.Init(header.m_eType, replyData, replyDataSize);
+        reply.m_sHeader.m_dwReplyId = header.m_dwId;
+        reply.m_sHeader.TypeSpecificData = header.TypeSpecificData;
+        hr = SendMessage(&reply, false);
+        if (FAILED(hr))
+        {
+            return hr;
+        }
+    }
+
+    if (messageId != 0)
+    {
+        m_dwLastMessageIdSeen = messageId;
+    }
+
+    return S_OK;
+}
+
+HRESULT DbgTransportSession::QueueEvent(const MessageHeader& header, const BYTE* data)
+{
+    if (header.m_cbDataBlock > CorDBIPC_BUFFER_SIZE ||
+        header.TypeSpecificData.Event.m_eIPCEventType >= IPCET_Max)
+    {
+        return E_INVALIDARG;
+    }
+
+    TransportLockHolder lock(m_sStateLock);
+
+    if (m_cValidEventBuffers == m_cEventBuffers)
+    {
+        DWORD newEntryCount = m_cEventBuffers + 4;
+        DbgEventBufferEntry* newBuffers =
+            reinterpret_cast<DbgEventBufferEntry*>(
+                new (nothrow) BYTE[newEntryCount * sizeof(DbgEventBufferEntry)]);
+        if (newBuffers == nullptr)
+        {
+            return E_OUTOFMEMORY;
+        }
+
+        for (DWORD index = 0; index < m_cValidEventBuffers; index++)
+        {
+            DWORD oldIndex = (m_idxEventBufferHead + index) % m_cEventBuffers;
+            memcpy(
+                &newBuffers[index],
+                &m_pEventBuffers[oldIndex],
+                sizeof(DbgEventBufferEntry));
+        }
+
+        delete [] m_pEventBuffers;
+        m_pEventBuffers = newBuffers;
+        m_cEventBuffers = newEntryCount;
+        m_idxEventBufferHead = 0;
+        m_idxEventBufferTail = m_cValidEventBuffers;
+    }
+
+    DbgEventBufferEntry* entry = &m_pEventBuffers[m_idxEventBufferTail];
+    if (!MarshalEventFromTransport(
+            data,
+            header.m_cbDataBlock,
+            reinterpret_cast<DebuggerIPCEvent *>(&entry->m_event)))
+    {
+        return E_INVALIDARG;
+    }
+    entry->m_type = header.TypeSpecificData.Event.m_eIPCEventType;
+
+    bool typeWasEmpty = true;
+    for (DWORD index = 0; index < m_cValidEventBuffers; index++)
+    {
+        DWORD eventIndex = (m_idxEventBufferHead + index) % m_cEventBuffers;
+        if (m_pEventBuffers[eventIndex].m_type == entry->m_type)
+        {
+            typeWasEmpty = false;
+            break;
+        }
+    }
+
+    m_cValidEventBuffers++;
+    m_idxEventBufferTail = (m_idxEventBufferTail + 1) % m_cEventBuffers;
+    if (typeWasEmpty)
+    {
+        m_rghEventReadyEvent[entry->m_type]->Set();
+    }
+
+    return S_OK;
+}
 
 // API used only by the LS to drive the transport into a state where it won't accept connections. This is used
 // when no proxy is detected at startup but it's too late to shutdown all of the debugging system easily. It's
@@ -423,11 +908,65 @@ void DbgTransportSession::GetNextEvent(DebuggerIPCEvent *pEvent, DWORD cbEvent)
     }
 }
 
+void DbgTransportSession::GetNextEvent(
+    DebuggerIPCEvent *pEvent,
+    DWORD cbEvent,
+    IPCEventType type)
+{
+    _ASSERTE(cbEvent <= CorDBIPC_BUFFER_SIZE);
+    _ASSERTE(type < IPCET_Max);
+
+    TransportLockHolder sLockHolder(m_sStateLock);
+
+    DWORD eventOffset = 0;
+    while (eventOffset < m_cValidEventBuffers)
+    {
+        DWORD eventIndex = (m_idxEventBufferHead + eventOffset) % m_cEventBuffers;
+        if (m_pEventBuffers[eventIndex].m_type == type)
+        {
+            break;
+        }
+        eventOffset++;
+    }
+    _ASSERTE(eventOffset < m_cValidEventBuffers);
+
+    DWORD eventIndex = (m_idxEventBufferHead + eventOffset) % m_cEventBuffers;
+    memcpy(pEvent, &m_pEventBuffers[eventIndex].m_event, cbEvent);
+
+    for (DWORD index = eventOffset; index + 1 < m_cValidEventBuffers; index++)
+    {
+        DWORD destinationIndex = (m_idxEventBufferHead + index) % m_cEventBuffers;
+        DWORD sourceIndex = (destinationIndex + 1) % m_cEventBuffers;
+        memcpy(
+            &m_pEventBuffers[destinationIndex],
+            &m_pEventBuffers[sourceIndex],
+            sizeof(DbgEventBufferEntry));
+    }
+
+    m_idxEventBufferTail =
+        (m_idxEventBufferTail + m_cEventBuffers - 1) % m_cEventBuffers;
+    m_cValidEventBuffers--;
+    _ASSERTE(((m_idxEventBufferHead + m_cValidEventBuffers) % m_cEventBuffers) ==
+        m_idxEventBufferTail);
+
+    for (DWORD index = 0; index < m_cValidEventBuffers; index++)
+    {
+        DWORD remainingEventIndex =
+            (m_idxEventBufferHead + index) % m_cEventBuffers;
+        if (m_pEventBuffers[remainingEventIndex].m_type == type)
+        {
+            m_rghEventReadyEvent[type]->Set();
+            break;
+        }
+    }
+}
+
+
 
 
 void MarshalDCBTransportToDCB(DebuggerIPCControlBlockTransport* pIn, DebuggerIPCControlBlock* pOut)
 {
-    pOut->m_DCBSize =                         pIn->m_DCBSize;
+    pOut->m_DCBSize =                         static_cast<SIZE_T>(pIn->m_DCBSize);
     pOut->m_verMajor =                        pIn->m_verMajor;
     pOut->m_verMinor =                        pIn->m_verMinor;
     pOut->m_checkedBuild =                    pIn->m_checkedBuild;
@@ -460,10 +999,21 @@ void MarshalDCBTransportToDCB(DebuggerIPCControlBlockTransport* pIn, DebuggerIPC
     pOut->m_helperThreadId =                 pIn->m_helperThreadId;
     pOut->m_temporaryHelperThreadId =        pIn->m_temporaryHelperThreadId;
     pOut->m_CanaryThreadId =                 pIn->m_CanaryThreadId;
+#if defined(TARGET_WASM)
+    pOut->m_pRuntimeOffsets =
+        reinterpret_cast<DebuggerIPCRuntimeOffsets*>(static_cast<UINT_PTR>(pIn->m_pRuntimeOffsets));
+    pOut->m_helperThreadStartAddr =
+        reinterpret_cast<void*>(static_cast<UINT_PTR>(pIn->m_helperThreadStartAddr));
+    pOut->m_helperRemoteStartAddr =
+        reinterpret_cast<void*>(static_cast<UINT_PTR>(pIn->m_helperRemoteStartAddr));
+    pOut->m_specialThreadList =
+        reinterpret_cast<DWORD*>(static_cast<UINT_PTR>(pIn->m_specialThreadList));
+#else
     pOut->m_pRuntimeOffsets =                pIn->m_pRuntimeOffsets;
     pOut->m_helperThreadStartAddr =          pIn->m_helperThreadStartAddr;
     pOut->m_helperRemoteStartAddr =          pIn->m_helperRemoteStartAddr;
     pOut->m_specialThreadList =              pIn->m_specialThreadList;
+#endif
 
     //
     //pOut->m_receiveBuffer
@@ -498,16 +1048,29 @@ void MarshalDCBToDCBTransport(DebuggerIPCControlBlock* pIn, DebuggerIPCControlBl
 
 #if defined(TARGET_64BIT)
     pOut->padding4 =                          pIn->padding4;
+#elif defined(TARGET_WASM)
+    pOut->padding4 =                          0;
 #endif // TARGET_64BIT
 
     pOut->m_realHelperThreadId =             pIn->m_realHelperThreadId;
     pOut->m_helperThreadId =                 pIn->m_helperThreadId;
     pOut->m_temporaryHelperThreadId =        pIn->m_temporaryHelperThreadId;
     pOut->m_CanaryThreadId =                 pIn->m_CanaryThreadId;
+#if defined(TARGET_WASM)
+    pOut->m_pRuntimeOffsets =
+        static_cast<UINT64>(reinterpret_cast<UINT_PTR>(pIn->m_pRuntimeOffsets));
+    pOut->m_helperThreadStartAddr =
+        static_cast<UINT64>(reinterpret_cast<UINT_PTR>(pIn->m_helperThreadStartAddr));
+    pOut->m_helperRemoteStartAddr =
+        static_cast<UINT64>(reinterpret_cast<UINT_PTR>(pIn->m_helperRemoteStartAddr));
+    pOut->m_specialThreadList =
+        static_cast<UINT64>(reinterpret_cast<UINT_PTR>(pIn->m_specialThreadList));
+#else
     pOut->m_pRuntimeOffsets =                pIn->m_pRuntimeOffsets;
     pOut->m_helperThreadStartAddr =          pIn->m_helperThreadStartAddr;
     pOut->m_helperRemoteStartAddr =          pIn->m_helperRemoteStartAddr;
     pOut->m_specialThreadList =              pIn->m_specialThreadList;
+#endif
 
     pOut->m_specialThreadListLength =        pIn->m_specialThreadListLength;
     pOut->m_shutdownBegun =                  pIn->m_shutdownBegun;
@@ -528,7 +1091,7 @@ HRESULT DbgTransportSession::ReadMemory(PBYTE pbRemoteAddress, PBYTE pbBuffer, S
 
     Message sMessage;
     sMessage.Init(MT_ReadMemory, NULL, 0, pbBuffer, (DWORD)cbBuffer);
-    sMessage.m_sHeader.TypeSpecificData.MemoryAccess.m_pbLeftSideBuffer = pbRemoteAddress;
+    SetLeftSideBuffer(&sMessage.m_sHeader, pbRemoteAddress);
     sMessage.m_sHeader.TypeSpecificData.MemoryAccess.m_cbLeftSideBuffer = (DWORD)cbBuffer;
 
     HRESULT hr = SendRequestMessageAndWait(&sMessage);
@@ -547,7 +1110,7 @@ HRESULT DbgTransportSession::WriteMemory(PBYTE pbRemoteAddress, PBYTE pbBuffer, 
 
     Message sMessage;
     sMessage.Init(MT_WriteMemory, pbBuffer, (DWORD)cbBuffer);
-    sMessage.m_sHeader.TypeSpecificData.MemoryAccess.m_pbLeftSideBuffer = pbRemoteAddress;
+    SetLeftSideBuffer(&sMessage.m_sHeader, pbRemoteAddress);
     sMessage.m_sHeader.TypeSpecificData.MemoryAccess.m_cbLeftSideBuffer = (DWORD)cbBuffer;
 
     HRESULT hr = SendRequestMessageAndWait(&sMessage);
@@ -596,8 +1159,14 @@ HRESULT DbgTransportSession::SendEventWorker(DebuggerIPCEvent * pEvent, IPCEvent
     DWORD cbEvent = GetEventSize(pEvent);
     _ASSERTE(cbEvent <= CorDBIPC_BUFFER_SIZE);
 
+    BYTE eventBuffer[CorDBIPC_BUFFER_SIZE];
+    if (!MarshalEventToTransport(pEvent, eventBuffer, cbEvent))
+    {
+        return E_INVALIDARG;
+    }
+
     Message sMessage;
-    sMessage.Init(MT_Event, (PBYTE)pEvent, cbEvent);
+    sMessage.Init(MT_Event, eventBuffer, cbEvent);
 
     // Store the event type in the header as well, it's sometimes useful for debugging.
     sMessage.m_sHeader.TypeSpecificData.Event.m_eIPCEventType = type;
@@ -1301,11 +1870,17 @@ void DbgTransportSession::TransportWorker()
         DbgTransportLog(LC_Proxy, "Forming new connection");
 
         // Clear out any existing connection.
-        if (m_channel != NULL)
+        if (m_channel != NULL && (!m_fChannelSupplied || m_fSuppliedChannelUsed))
         {
             (void)m_channel->CloseConnection();
             (void)m_channel->Release();
             m_channel = NULL;
+
+            if (m_fChannelSupplied)
+            {
+                SetSessionState(SS_Closed);
+                goto Shutdown;
+            }
         }
 
 #ifdef RIGHT_SIDE_COMPILE
@@ -1314,7 +1889,14 @@ void DbgTransportSession::TransportWorker()
         // the debugger will eventually get bored waiting for us and shutdown the session, which will
         // terminate this loop.
         ConnStatus eStatus;
-        if (DBG_TRANSPORT_SHOULD_INJECT_FAULT(Connect))
+        if (m_fChannelSupplied)
+        {
+            BOOL isConnected = FALSE;
+            hr = m_channel->WaitForConnection(/* timeoutMilliseconds */ -1, &isConnected);
+            m_fSuppliedChannelUsed = true;
+            eStatus = SUCCEEDED(hr) && isConnected ? SCS_Success : SCS_NoListener;
+        }
+        else if (DBG_TRANSPORT_SHOULD_INJECT_FAULT(Connect))
         {
             eStatus = SCS_NetworkFailure;
         }
@@ -1342,7 +1924,14 @@ void DbgTransportSession::TransportWorker()
         }
 #else // RIGHT_SIDE_COMPILE
         ConnStatus eStatus;
-        if (DBG_TRANSPORT_SHOULD_INJECT_FAULT(Accept))
+        if (m_fChannelSupplied)
+        {
+            BOOL isConnected = FALSE;
+            hr = m_channel->WaitForConnection(/* timeoutMilliseconds */ -1, &isConnected);
+            m_fSuppliedChannelUsed = true;
+            eStatus = SUCCEEDED(hr) && isConnected ? SCS_Success : SCS_NoListener;
+        }
+        else if (DBG_TRANSPORT_SHOULD_INJECT_FAULT(Accept))
         {
             eStatus = SCS_NetworkFailure;
         }
@@ -1900,8 +2489,17 @@ void DbgTransportSession::TransportWorker()
                 // Receive event data into the tail buffer (we want to do this without holding the state lock
                 // and can do so safely since this is the only thread that can receive data and clients can do
                 // nothing that impacts the location of the tail of the buffer list).
-                if (!ReceiveBlock((PBYTE)&m_pEventBuffers[m_idxEventBufferTail].m_event, sReceiveHeader.m_cbDataBlock))
+                BYTE eventBuffer[CorDBIPC_BUFFER_SIZE];
+                if (!ReceiveBlock(eventBuffer, sReceiveHeader.m_cbDataBlock))
                     HANDLE_TRANSIENT_ERROR();
+                if (!MarshalEventFromTransport(
+                        eventBuffer,
+                        sReceiveHeader.m_cbDataBlock,
+                        reinterpret_cast<DebuggerIPCEvent *>(
+                            &m_pEventBuffers[m_idxEventBufferTail].m_event)))
+                {
+                    HANDLE_CRITICAL_ERROR();
+                }
 
                 {
                     m_pEventBuffers[m_idxEventBufferTail].m_type = sReceiveHeader.TypeSpecificData.Event.m_eIPCEventType;
@@ -1910,6 +2508,18 @@ void DbgTransportSession::TransportWorker()
                     // touch this field as well.
                     TransportLockHolder sLockHolder(m_sStateLock);
 
+                    bool typeWasEmpty = true;
+                    for (DWORD index = 0; index < m_cValidEventBuffers; index++)
+                    {
+                        DWORD eventIndex = (m_idxEventBufferHead + index) % m_cEventBuffers;
+                        if (m_pEventBuffers[eventIndex].m_type ==
+                            m_pEventBuffers[m_idxEventBufferTail].m_type)
+                        {
+                            typeWasEmpty = false;
+                            break;
+                        }
+                    }
+
                     m_cValidEventBuffers++;
                     DWORD idxCurrentEvent = m_idxEventBufferTail;
 
@@ -1917,9 +2527,8 @@ void DbgTransportSession::TransportWorker()
                     // code in GetNextEvent() does read it for an assert.
                     m_idxEventBufferTail = (m_idxEventBufferTail + 1) % m_cEventBuffers;
 
-                    // If we just added the first valid event then wake up the client so they can call
-                    // GetNextEvent().
-                    if (m_cValidEventBuffers == 1)
+                    // Wake the client when this is the first queued event of its multiplexing type.
+                    if (typeWasEmpty)
                         m_rghEventReadyEvent[m_pEventBuffers[idxCurrentEvent].m_type]->Set();
                 }
             }
@@ -1930,20 +2539,25 @@ void DbgTransportSession::TransportWorker()
                 if (!ProcessReply(&sReceiveHeader))
                     HANDLE_TRANSIENT_ERROR();
 #else // RIGHT_SIDE_COMPILE
+            {
                 // The RS wants to read our memory. First check the range requested is both committed and
                 // readable. If that succeeds we simply set the optional reply block to match the request region
                 // (i.e. we send the memory directly).
                 fReplyRequired = true;
 
-                hr = CheckBufferAccess(sReceiveHeader.TypeSpecificData.MemoryAccess.m_pbLeftSideBuffer,
-                                       sReceiveHeader.TypeSpecificData.MemoryAccess.m_cbLeftSideBuffer,
-                                       false);
+                PBYTE leftSideBuffer;
+                hr = TryGetLeftSideBuffer(sReceiveHeader, &leftSideBuffer)
+                    ? CheckBufferAccess(leftSideBuffer,
+                                        sReceiveHeader.TypeSpecificData.MemoryAccess.m_cbLeftSideBuffer,
+                                        false)
+                    : E_INVALIDARG;
                 sReceiveHeader.TypeSpecificData.MemoryAccess.m_hrResult = hr;
                 if (SUCCEEDED(hr))
                 {
-                    pbOptReplyData = sReceiveHeader.TypeSpecificData.MemoryAccess.m_pbLeftSideBuffer;
+                    pbOptReplyData = leftSideBuffer;
                     cbOptReplyData = sReceiveHeader.TypeSpecificData.MemoryAccess.m_cbLeftSideBuffer;
                 }
+            }
 #endif // RIGHT_SIDE_COMPILE
                 break;
 
@@ -1952,6 +2566,7 @@ void DbgTransportSession::TransportWorker()
                 if (!ProcessReply(&sReceiveHeader))
                     HANDLE_TRANSIENT_ERROR();
 #else // RIGHT_SIDE_COMPILE
+            {
                 // The RS wants to write our memory.
                 if (sReceiveHeader.m_cbDataBlock != sReceiveHeader.TypeSpecificData.MemoryAccess.m_cbLeftSideBuffer)
                 {
@@ -1963,12 +2578,15 @@ void DbgTransportSession::TransportWorker()
 
                 // Check the range requested is both committed and writeable. If that succeeds we simply read
                 // the next incoming block into the destination buffer.
-                hr = CheckBufferAccess(sReceiveHeader.TypeSpecificData.MemoryAccess.m_pbLeftSideBuffer,
-                                       sReceiveHeader.TypeSpecificData.MemoryAccess.m_cbLeftSideBuffer,
-                                       true);
+                PBYTE leftSideBuffer;
+                hr = TryGetLeftSideBuffer(sReceiveHeader, &leftSideBuffer)
+                    ? CheckBufferAccess(leftSideBuffer,
+                                        sReceiveHeader.TypeSpecificData.MemoryAccess.m_cbLeftSideBuffer,
+                                        true)
+                    : E_INVALIDARG;
                 if (SUCCEEDED(hr))
                 {
-                    if (!ReceiveBlock(sReceiveHeader.TypeSpecificData.MemoryAccess.m_pbLeftSideBuffer,
+                    if (!ReceiveBlock(leftSideBuffer,
                                       sReceiveHeader.TypeSpecificData.MemoryAccess.m_cbLeftSideBuffer))
                         HANDLE_TRANSIENT_ERROR();
                 }
@@ -1990,6 +2608,7 @@ void DbgTransportSession::TransportWorker()
                         cbBytesToRead -= cbTransfer;
                     }
                 }
+            }
 #endif // RIGHT_SIDE_COMPILE
                 break;
 
@@ -2161,7 +2780,7 @@ void DbgTransportSession::TransportWorker()
 // significant data to vary wildy from event to event).
 DWORD DbgTransportSession::GetEventSize(DebuggerIPCEvent *pEvent)
 {
-    DWORD cbBaseSize = offsetof(DebuggerIPCEvent, MetadataUpdateData);
+    DWORD cbBaseSize = TransportEventHeaderSize;
     DWORD cbAdditionalSize = 0;
 
     switch (pEvent->type & DB_IPCE_TYPE_MASK)
@@ -2524,13 +3143,13 @@ void DbgTransportSession::DbgTransportLogMessageReceived(MessageHeader *pHeader)
 #ifdef RIGHT_SIDE_COMPILE
     case MT_ReadMemory:
         DbgTransportLog(LC_Requests,  "Received 'ReadMemory(0x%08X, %u)' reply",
-                        (PBYTE)pHeader->TypeSpecificData.MemoryAccess.m_pbLeftSideBuffer,
+                        GetLeftSideBufferForLogging(*pHeader),
                         (DWORD)pHeader->TypeSpecificData.MemoryAccess.m_cbLeftSideBuffer);
         DBG_TRANSPORT_INC_STAT(ReceivedReadMemory);
         return;
     case MT_WriteMemory:
         DbgTransportLog(LC_Requests,  "Received 'WriteMemory(0x%08X, %u)' reply",
-                        (PBYTE)pHeader->TypeSpecificData.MemoryAccess.m_pbLeftSideBuffer,
+                        GetLeftSideBufferForLogging(*pHeader),
                         (DWORD)pHeader->TypeSpecificData.MemoryAccess.m_cbLeftSideBuffer);
         DBG_TRANSPORT_INC_STAT(ReceivedWriteMemory);
         return;
@@ -2545,13 +3164,13 @@ void DbgTransportSession::DbgTransportLogMessageReceived(MessageHeader *pHeader)
 #else // RIGHT_SIDE_COMPILE
     case MT_ReadMemory:
         DbgTransportLog(LC_Requests,  "Received 'ReadMemory(0x%08X, %u)'",
-                        (PBYTE)pHeader->TypeSpecificData.MemoryAccess.m_pbLeftSideBuffer,
+                        GetLeftSideBufferForLogging(*pHeader),
                         (DWORD)pHeader->TypeSpecificData.MemoryAccess.m_cbLeftSideBuffer);
         DBG_TRANSPORT_INC_STAT(ReceivedReadMemory);
         return;
     case MT_WriteMemory:
         DbgTransportLog(LC_Requests,  "Received 'WriteMemory(0x%08X, %u)'",
-                        (PBYTE)pHeader->TypeSpecificData.MemoryAccess.m_pbLeftSideBuffer,
+                        GetLeftSideBufferForLogging(*pHeader),
                         (DWORD)pHeader->TypeSpecificData.MemoryAccess.m_cbLeftSideBuffer);
         DBG_TRANSPORT_INC_STAT(ReceivedWriteMemory);
         return;
@@ -2630,6 +3249,7 @@ bool DbgTransportSession::DbgTransportShouldInjectFault(DbgTransportFaultOp eOp,
 }
 #endif // _DEBUG
 
+#if defined(FEATURE_DBGIPC_TRANSPORT_DI)
 #include <twowaypipe.h>
 
 class DbgTransportPipeChannel final : public IDebugChannel
@@ -2760,6 +3380,21 @@ HRESULT ConnectToChannel(
     (void)channel->Release();
     return hr;
 }
+#else
+HRESULT CreateChannel(
+    const ProcessDescriptor&,
+    IDebugChannel**)
+{
+    return E_NOTIMPL;
+}
+
+HRESULT ConnectToChannel(
+    const ProcessDescriptor&,
+    IDebugChannel**)
+{
+    return E_NOTIMPL;
+}
+#endif // FEATURE_DBGIPC_TRANSPORT_DI
 
 // Lock abstraction code (hides difference in lock implementation between left and right side).
 #ifdef RIGHT_SIDE_COMPILE
@@ -2810,4 +3445,4 @@ void DbgTransportLock::Leave()
 }
 #endif // RIGHT_SIDE_COMPILE
 
-#endif // (!defined(RIGHT_SIDE_COMPILE) && defined(FEATURE_DBGIPC_TRANSPORT_VM)) || (defined(RIGHT_SIDE_COMPILE) && defined(FEATURE_DBGIPC_TRANSPORT_DI))
+#endif // (!defined(RIGHT_SIDE_COMPILE) && defined(FEATURE_DBGIPC_TRANSPORT_VM)) || (defined(RIGHT_SIDE_COMPILE) && (defined(FEATURE_DBGIPC_TRANSPORT_DI) || defined(FEATURE_SUPPLIED_DBGIPC_TRANSPORT_DI)))

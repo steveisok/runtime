@@ -952,10 +952,13 @@ void HandleValueHome::GetValue(MemoryRange dest)
     CORDB_ADDRESS objPtr = PTR_TO_CORDB_ADDRESS((void *)NULL);
     IfFailThrow(m_pProcess->GetDAC()->GetHandleAddressFromVmHandle(m_vmObjectHandle, &objPtr));
 
-    _ASSERTE(dest.Size() <= sizeof(void *));
+    ULONG32 targetPointerSize = m_pProcess->GetTargetPointerSize();
+    _ASSERTE(dest.Size() == targetPointerSize);
     _ASSERTE(dest.StartAddress() != NULL);
     _ASSERTE(objPtr != (CORDB_ADDRESS)NULL);
-    m_pProcess->SafeReadBuffer(TargetBuffer(objPtr, sizeof(void *)), (BYTE *)dest.StartAddress());
+    m_pProcess->SafeReadBuffer(
+        TargetBuffer(objPtr, targetPointerSize),
+        reinterpret_cast<BYTE *>(dest.StartAddress()));
 } // HandleValueHome::GetValue
 
 // Sets a location to the value provided in src
@@ -1145,4 +1148,3 @@ RefValueHome::RefValueHome(CordbProcess *                pProcess,
 
 
 } // RefValueHome::RefValueHome
-

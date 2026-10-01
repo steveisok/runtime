@@ -838,6 +838,31 @@ public unsafe class StackWalkTests
         Assert.Equal(0x8000000u, context.RawContextFlags);
     }
 
+    [Fact]
+    public void GetRuntimeFramePointer_Wasm_ReturnsStackPointer()
+    {
+        MockTarget.Architecture wasmArch = new() { IsLittleEndian = true, Is64Bit = false };
+        TestPlaceholderTarget target = CreateTarget(
+            wasmArch,
+            threadBuilder => threadBuilder.AddThread(1, 1234),
+            runtimeArchitecture: RuntimeInfoArchitecture.Wasm);
+
+        const ulong StackPointer = 0x0004_1000;
+        ContextHolder<WasmContext> context = new();
+        context.StackPointer = new TargetPointer(StackPointer);
+        context.InstructionPointer = new TargetCodePointer(0x0004_2000);
+
+        ThreadData threadData = new()
+        {
+            Frame = new TargetPointer(uint.MaxValue),
+        };
+
+        IStackWalk stackWalk = target.Contracts.StackWalk;
+        IStackDataFrameHandle frame = stackWalk.CreateStackWalk(threadData, context.GetBytes(), isFirst: true).First();
+
+        Assert.Equal(StackPointer, stackWalk.GetRuntimeFramePointer(frame).Value);
+    }
+
     // When an active InlinedCallFrame is directly followed by an InterpreterFrame, WasmFrameHandler
     // stashes the InterpreterFrame address into the synthetic first-argument register
     // (InterpreterWalkFramePointer) so the subsequent interpreter virtual unwind can recover the

@@ -13,6 +13,7 @@ public static class Constants
         public const string ThreadStore = nameof(ThreadStore);
         public const string FinalizerThread = nameof(FinalizerThread);
         public const string FunctionTableIndexRangeList = nameof(FunctionTableIndexRangeList);
+        public const string VirtualIPRangeList = nameof(VirtualIPRangeList);
         public const string GCThread = nameof(GCThread);
         public const string Debugger = nameof(Debugger);
         public const string DebuggerPatchTable = nameof(DebuggerPatchTable);

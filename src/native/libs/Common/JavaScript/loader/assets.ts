@@ -126,6 +126,7 @@ export async function instantiateMainWasm(imports: WebAssembly.Imports, successC
     }
     successCallback(instance, module);
     const memory = dotnetNativeBrowserExports.getWasmMemory();
+    (globalThis as typeof globalThis & { __coreclrWasmDebugMemory?: WebAssembly.Memory }).__coreclrWasmDebugMemory = memory;
     wasmMemoryPromiseController.resolve(memory);
 }
 

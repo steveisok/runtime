@@ -49,6 +49,8 @@ if(CLR_CMAKE_HOST_UNIX)
         list(APPEND DEBUG_PAL_SOURCES unix/wait.cpp)
         # Strict POSIX mode hides pipe2 on BSD even when the platform supports it.
         set_property(SOURCE unix/wait.cpp APPEND PROPERTY COMPILE_OPTIONS -U_POSIX_C_SOURCE)
+    else()
+        list(APPEND DEBUG_PAL_SOURCES dummy/wait.cpp)
     endif()
 
 endif(CLR_CMAKE_HOST_UNIX)
