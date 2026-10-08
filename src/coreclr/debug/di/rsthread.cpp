@@ -754,6 +754,7 @@ HRESULT CordbThread::GetUserState(CorDebugUserState * pState)
         *pState = GetUserState();
     }
     EX_CATCH_HRESULT(hr);
+
     return hr;
 }
 
@@ -1027,6 +1028,7 @@ HRESULT CordbThread::GetActiveChain(ICorDebugChain ** ppChain)
         }
     }
     EX_CATCH_HRESULT(hr);
+
     return hr;
 }
 
@@ -10474,6 +10476,12 @@ HRESULT CordbEval::GetResult(ICorDebugValue **ppResult)
 
     }
     EX_CATCH_HRESULT(hr);
+
+    if (SUCCEEDED(hr) && *ppResult != NULL)
+    {
+        hr = GetProcess()->FuncEvalResultConsumed();
+    }
+
     return hr;
 }
 

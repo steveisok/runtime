@@ -26,14 +26,17 @@ public sealed unsafe partial class DacDbiImpl
         return numArgs;
     }
 
-    internal static NativeVarInfo ConvertToNativeVarInfo(DebugVarInfo varInfo)
+    internal static NativeVarInfo ConvertToNativeVarInfo(
+        DebugVarInfo varInfo,
+        RuntimeInfoArchitecture targetArchitecture = RuntimeInfoArchitecture.Unknown,
+        Architecture dbiArchitecture = default)
     {
         NativeVarInfo nvi = default;
         nvi.startOffset = varInfo.StartOffset;
         nvi.endOffset = varInfo.EndOffset;
         nvi.callReturnValueILOffset = varInfo.CallReturnValueILOffset;
         nvi.varNumber = varInfo.VarNumber;
-        nvi.loc = ConvertToVarLoc(varInfo);
+        nvi.loc = ConvertToVarLoc(varInfo, targetArchitecture, dbiArchitecture);
         return nvi;
     }
 
@@ -46,7 +49,10 @@ public sealed unsafe partial class DacDbiImpl
         return nativeMapping;
     }
 
-    internal static VarLoc ConvertToVarLoc(DebugVarInfo varInfo)
+    internal static VarLoc ConvertToVarLoc(
+        DebugVarInfo varInfo,
+        RuntimeInfoArchitecture targetArchitecture = RuntimeInfoArchitecture.Unknown,
+        Architecture dbiArchitecture = default)
     {
         VarLoc loc = default;
         loc.vlType = (varInfo.Kind, varInfo.IsByRef, varInfo.IsFloatingPoint) switch
@@ -71,7 +77,7 @@ public sealed unsafe partial class DacDbiImpl
                 loc.vlrReg = varInfo.Register;
                 break;
             case DebugVarLocKind.Stack:
-                loc.vlsBaseReg = varInfo.BaseRegister;
+                loc.vlsBaseReg = NormalizeStackBaseRegister(varInfo.BaseRegister, targetArchitecture, dbiArchitecture);
                 loc.vlsOffset = varInfo.StackOffset;
                 break;
             case DebugVarLocKind.RegisterRegister:
@@ -80,16 +86,16 @@ public sealed unsafe partial class DacDbiImpl
                 break;
             case DebugVarLocKind.RegisterStack:
                 loc.vlrsReg = varInfo.Register;
-                loc.vlrssBaseReg = varInfo.BaseRegister2;
+                loc.vlrssBaseReg = NormalizeStackBaseRegister(varInfo.BaseRegister2, targetArchitecture, dbiArchitecture);
                 loc.vlrssOffset = varInfo.StackOffset2;
                 break;
             case DebugVarLocKind.StackRegister:
-                loc.vlsrsBaseReg = varInfo.BaseRegister;
+                loc.vlsrsBaseReg = NormalizeStackBaseRegister(varInfo.BaseRegister, targetArchitecture, dbiArchitecture);
                 loc.vlsrsOffset = varInfo.StackOffset;
                 loc.vlsrReg = varInfo.Register;
                 break;
             case DebugVarLocKind.DoubleStack:
-                loc.vlsBaseReg = varInfo.BaseRegister;
+                loc.vlsBaseReg = NormalizeStackBaseRegister(varInfo.BaseRegister, targetArchitecture, dbiArchitecture);
                 loc.vlsOffset = varInfo.StackOffset;
                 break;
             case DebugVarLocKind.FloatingPointStack:
@@ -101,6 +107,25 @@ public sealed unsafe partial class DacDbiImpl
         }
 
         return loc;
+    }
+
+    private static uint NormalizeStackBaseRegister(
+        uint register,
+        RuntimeInfoArchitecture targetArchitecture,
+        Architecture dbiArchitecture)
+    {
+        const uint WasmFramePointerRegister = 0;
+
+        if (targetArchitecture != RuntimeInfoArchitecture.Wasm || register != WasmFramePointerRegister)
+            return register;
+
+        return dbiArchitecture switch
+        {
+            Architecture.X86 or Architecture.X64 => 5,
+            Architecture.Arm => 11,
+            Architecture.Arm64 => 29,
+            _ => throw new PlatformNotSupportedException($"WASM debugging is not supported by a DBI running on {dbiArchitecture}."),
+        };
     }
 
     // Converts cDAC Contracts.SourceTypes to native ICorDebugInfo::SourceTypes values.

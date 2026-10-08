@@ -227,13 +227,35 @@ extern "C" EMSCRIPTEN_KEEPALIVE int CoreClrWasmDebuggerTransportPump()
         Debugger::DebuggerLockHolder debuggerLock(g_pDebugger, FALSE);
         DebuggerIPCEventType eventType =
             static_cast<DebuggerIPCEventType>(event->type & DB_IPCE_TYPE_MASK);
+        if (!g_pDebugger->IsStopped() && eventType == DB_IPCE_CONTINUE)
+        {
+            g_pDebugger->ResumeThreads(event->vmAppDomain.GetRawPtr());
+            return S_FALSE;
+        }
         if (g_pDebugger->IsStopped() &&
             eventType != DB_IPCE_ASYNC_BREAK &&
-            eventType != DB_IPCE_ATTACHING)
+            eventType != DB_IPCE_ATTACHING &&
+            !g_pDebugger->ThreadHoldsLock())
         {
             debuggerLock.Acquire();
         }
-        (void)HandleIPCEventWrapper(g_pDebugger, event);
+        bool wasContinue;
+        Thread* currentThread = GetThreadNULLOk();
+        if (currentThread != nullptr)
+        {
+            // Browser debugger evaluation re-enters the runtime on the stopped
+            // managed thread, but HandleIPCEvent requires cooperative mode.
+            GCX_COOP_THREAD_EXISTS(currentThread);
+            wasContinue = HandleIPCEventWrapper(g_pDebugger, event);
+        }
+        else
+        {
+            wasContinue = HandleIPCEventWrapper(g_pDebugger, event);
+        }
+        if (wasContinue)
+        {
+            return S_FALSE;
+        }
     }
 
     return S_OK;

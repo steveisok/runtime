@@ -831,11 +831,25 @@ public sealed unsafe partial class DacDbiImpl : IDacDbiInterface
             }
 
             Contracts.ILoader loader = _target.Contracts.Loader;
+            TargetPointer systemAssembly = loader.GetSystemAssembly();
+            if (systemAssembly != TargetPointer.Null)
+            {
+                fpCallback(systemAssembly.Value, pUserData);
+#if DEBUG
+                cdacAssemblies?.Add(systemAssembly.Value);
+#endif
+            }
+
             foreach (Contracts.ModuleHandle handle in loader.GetModuleHandles(
                 new TargetPointer(vmAppDomain),
                 AssemblyIterationFlags.IncludeLoading | AssemblyIterationFlags.IncludeLoaded | AssemblyIterationFlags.IncludeExecution))
             {
                 TargetPointer assembly = loader.GetAssembly(handle);
+                if (assembly == systemAssembly)
+                {
+                    continue;
+                }
+
                 fpCallback(assembly.Value, pUserData);
 #if DEBUG
                 cdacAssemblies?.Add(assembly.Value);
@@ -1680,7 +1694,10 @@ public sealed unsafe partial class DacDbiImpl : IDacDbiInterface
                 IEnumerable<DebugVarInfo> varInfos = debugInfo.GetMethodVarInfo(codePointer, out _);
                 foreach (DebugVarInfo varInfo in varInfos)
                 {
-                    cdacVarInfos.Add(ConvertToNativeVarInfo(varInfo));
+                    cdacVarInfos.Add(ConvertToNativeVarInfo(
+                        varInfo,
+                        _target.Contracts.RuntimeInfo.GetTargetArchitecture(),
+                        RuntimeInformation.ProcessArchitecture));
                 }
             }
 
@@ -2115,7 +2132,8 @@ public sealed unsafe partial class DacDbiImpl : IDacDbiInterface
                     case StackWalkState.InitialNativeContext:
                     case StackWalkState.NativeMarker:
                         TargetCodePointer controlPC = _target.Contracts.StackWalk.GetInstructionPointer(handle);
-                        if (_target.Contracts.Debugger.GetHijackKind(controlPC) != HijackKind.None)
+                        if (_target.Contracts.TryGetContract(out IDebugger debugger)
+                            && debugger.GetHijackKind(controlPC) != HijackKind.None)
                         {
                             ftResult = FrameType.NativeRuntimeUnwindableStackFrame;
                             initFrameData = true;
@@ -2232,8 +2250,40 @@ public sealed unsafe partial class DacDbiImpl : IDacDbiInterface
     {
         if (ctxPtr == 0)
             return;
-        byte[] context = GetCurrentContextBytes(handle);
+
+        byte[] context = GetDbiFrameContextBytes(handle);
         context.AsSpan().CopyTo(new Span<byte>((byte*)ctxPtr, context.Length));
+    }
+
+    private byte[] GetDbiFrameContextBytes(IStackDataFrameHandle handle)
+    {
+        byte[] context = GetCurrentContextBytes(handle);
+        if (_target.Contracts.RuntimeInfo.GetTargetArchitecture() != RuntimeInfoArchitecture.Wasm)
+            return context;
+
+        IPlatformAgnosticContext wasmContext = IPlatformAgnosticContext.GetContextForPlatform(_target);
+        wasmContext.FillFromBuffer(context);
+        return ConvertContextForDbi(wasmContext, RuntimeInformation.ProcessArchitecture);
+    }
+
+    internal static byte[] ConvertContextForDbi(IPlatformAgnosticContext wasmContext, Architecture architecture)
+    {
+        RuntimeInfoArchitecture dbiArchitecture = architecture switch
+        {
+            Architecture.X86 => RuntimeInfoArchitecture.X86,
+            Architecture.X64 => RuntimeInfoArchitecture.X64,
+            Architecture.Arm => RuntimeInfoArchitecture.Arm,
+            Architecture.Arm64 => RuntimeInfoArchitecture.Arm64,
+            _ => throw new PlatformNotSupportedException(
+                $"WASM debugging is not supported by a DBI running on {architecture}."),
+        };
+        IPlatformAgnosticContext dbiContext = IPlatformAgnosticContext.GetContextForArchitecture(dbiArchitecture);
+
+        dbiContext.RawContextFlags = dbiContext.FullContextFlags;
+        dbiContext.StackPointer = wasmContext.StackPointer;
+        dbiContext.FramePointer = wasmContext.FramePointer;
+        dbiContext.InstructionPointer = wasmContext.InstructionPointer;
+        return dbiContext.GetBytes();
     }
 
     private void InitFrameData(IStackDataFrameHandle handle, FrameType ft, nint pFrameData)
@@ -2903,6 +2953,26 @@ public sealed unsafe partial class DacDbiImpl : IDacDbiInterface
         return hr;
     }
 
+    private TargetCodePointer GetInterpreterCodeFromEntryPointIfPresent(TargetCodePointer entryPoint)
+    {
+        try
+        {
+            if (_target.Contracts.FeatureFlags.IsEnabled(RuntimeFeature.PortableEntrypoints))
+            {
+                IExecutionManager executionManager = _target.Contracts.ExecutionManager;
+                return executionManager.GetCodeBlockHandle(entryPoint) is not null
+                    ? entryPoint
+                    : executionManager.GetInterpreterCodeFromPortableEntryPoint(entryPoint);
+            }
+
+            return _target.Contracts.PrecodeStubs.GetInterpreterCodeFromInterpreterPrecodeIfPresent(entryPoint);
+        }
+        catch (VirtualReadException)
+        {
+            return entryPoint;
+        }
+    }
+
     public int GetNativeCodeInfo(ulong vmAssembly, uint functionToken, NativeCodeFunctionData* pCodeInfo)
     {
         using Lock.Scope scope = _apiLock.EnterScope();
@@ -2932,7 +3002,7 @@ public sealed unsafe partial class DacDbiImpl : IDacDbiInterface
                 TargetCodePointer nativeCode = rts.GetNativeCode(methodDescHandle);
                 if (nativeCode != TargetCodePointer.Null)
                 {
-                    nativeCode = _target.Contracts.PrecodeStubs.GetInterpreterCodeFromInterpreterPrecodeIfPresent(nativeCode);
+                    nativeCode = GetInterpreterCodeFromEntryPointIfPresent(nativeCode);
                     pCodeInfo->hotRegion.pAddress = nativeCode.ToAddress(_target).ToClrDataAddress(_target);
 
                     IExecutionManager executionManager = _target.Contracts.ExecutionManager;
@@ -2984,13 +3054,7 @@ public sealed unsafe partial class DacDbiImpl : IDacDbiInterface
             if (codeAddress != 0)
             {
                 TargetCodePointer code = ((ClrDataAddress)codeAddress).ToTargetCodePointer(_target);
-                try
-                {
-                    code = _target.Contracts.PrecodeStubs.GetInterpreterCodeFromInterpreterPrecodeIfPresent(code);
-                }
-                catch (VirtualReadException)
-                {
-                }
+                code = GetInterpreterCodeFromEntryPointIfPresent(code);
                 code = new TargetCodePointer(code.ToAddress(_target).Value);
 
                 IExecutionManager executionManager = _target.Contracts.ExecutionManager;

@@ -3217,8 +3217,20 @@ public:
     HRESULT SendManagedAttach();
     HRESULT SendManagedAttachEvent();
     HRESULT SendManagedContinue();
+    HRESULT StopShimless();
     HRESULT ContinueShimless();
+    HRESULT FuncEvalResultConsumed();
     bool TakeContinueAfterCallback();
+    bool IsWaitingForSuppliedEventWhileSynchronized() const
+    {
+        return m_waitingForSuppliedEventWhileSynchronized;
+    }
+    bool TakeWaitingForSuppliedEventWhileSynchronized()
+    {
+        bool waiting = m_waitingForSuppliedEventWhileSynchronized;
+        m_waitingForSuppliedEventWhileSynchronized = false;
+        return waiting;
+    }
 
     void DetachShim();
 
@@ -4030,6 +4042,7 @@ private:
 
     DebuggerIPCEventType  m_dispatchedEvent;   // what event are we currently dispatching?
     bool m_continueAfterCallback;
+    bool m_waitingForSuppliedEventWhileSynchronized;
 
     RSLock            m_StopGoLock;
 

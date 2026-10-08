@@ -918,7 +918,9 @@ ICorDebugMutableDataTarget * ShimProcess::GetDataTarget()
 // In V3, ICorDebug no longer owns the event thread and it does not own the event pipeline either.
 INativeEventPipeline * ShimProcess::GetNativePipeline()
 {
-    return m_pWin32EventThread->GetNativePipeline();
+    if (m_pWin32EventThread)
+        return m_pWin32EventThread->GetNativePipeline();
+    return NULL;
 }
 
 // Trivial accessor to expose the W32ET thread to the CordbProcess so that it can emulate V2 behavior.

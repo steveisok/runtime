@@ -42,7 +42,12 @@ public interface IPlatformAgnosticContext
     public static IPlatformAgnosticContext GetContextForPlatform(Target target)
     {
         IRuntimeInfo runtimeInfo = target.Contracts.RuntimeInfo;
-        return runtimeInfo.GetTargetArchitecture() switch
+        return GetContextForArchitecture(runtimeInfo.GetTargetArchitecture());
+    }
+
+    public static IPlatformAgnosticContext GetContextForArchitecture(RuntimeInfoArchitecture architecture)
+    {
+        return architecture switch
         {
             RuntimeInfoArchitecture.X86 => new ContextHolder<X86Context>(),
             RuntimeInfoArchitecture.X64 => new ContextHolder<AMD64Context>(),
@@ -52,7 +57,7 @@ public interface IPlatformAgnosticContext
             RuntimeInfoArchitecture.RiscV64 => new ContextHolder<RISCV64Context>(),
             RuntimeInfoArchitecture.Wasm => new ContextHolder<WasmContext>(),
             RuntimeInfoArchitecture.Unknown => throw new InvalidOperationException($"Processor architecture is required for creating a platform specific context and is not provided by the target"),
-            _ => throw new InvalidOperationException($"Unsupported architecture {runtimeInfo.GetTargetArchitecture()}"),
+            _ => throw new InvalidOperationException($"Unsupported architecture {architecture}"),
         };
     }
 }

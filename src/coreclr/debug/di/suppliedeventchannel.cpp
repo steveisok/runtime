@@ -56,6 +56,11 @@ public:
         return m_pTransport->GetDebugEventReadyEvent();
     }
 
+    bool HasPendingEventFromLeftSide() override
+    {
+        return m_pTransport->HasPendingEvent(IPCET_DebugEvent);
+    }
+
     void ClearEventForLeftSide() override
     {
     }

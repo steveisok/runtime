@@ -5212,11 +5212,13 @@ void Debugger::TrapAllRuntimeThreads()
     CONTRACTL_END;
 
 #ifdef FEATURE_SINGLE_THREADED_DEBUGGER
-    if (m_trappingRuntimeThreads == FALSE)
+    if (m_stopped)
     {
-        m_trappingRuntimeThreads = TRUE;
-        SuspendComplete();
+        m_stopped = false;
+        m_trappingRuntimeThreads = FALSE;
     }
+    m_trappingRuntimeThreads = TRUE;
+    SuspendComplete();
     return;
 #endif
 
@@ -7698,6 +7700,37 @@ void Debugger::ProcessAnyPendingEvals(Thread *pThread)
         // that we can do another nested eval properly.
         GetPendingEvals()->RemovePendingEval(pThread);
 
+#ifdef FEATURE_SINGLE_THREADED_DEBUGGER
+        class PendingFuncEvalContextHolder
+        {
+        public:
+            PendingFuncEvalContextHolder(Thread* thread, DebuggerEval* eval)
+                : m_thread(thread),
+                  m_installedContext(false)
+            {
+                if (g_pEEInterface->GetThreadFilterContext(thread) == NULL)
+                {
+                    memcpy(&m_context, &eval->m_context, sizeof(m_context));
+                    g_pEEInterface->SetThreadFilterContext(thread, &m_context);
+                    m_installedContext = true;
+                }
+            }
+
+            ~PendingFuncEvalContextHolder()
+            {
+                if (m_installedContext)
+                {
+                    g_pEEInterface->SetThreadFilterContext(m_thread, NULL);
+                }
+            }
+
+        private:
+            Thread* m_thread;
+            CONTEXT m_context;
+            bool m_installedContext;
+        } contextHolder(pThread, pDE);
+#endif // FEATURE_SINGLE_THREADED_DEBUGGER
+
         // Go ahead and do the pending func eval. pDE is invalid after this.
         void *ret;
         ret = ::FuncEvalHijackWorker(pDE);
@@ -7705,6 +7738,13 @@ void Debugger::ProcessAnyPendingEvals(Thread *pThread)
 
         // The return value should be NULL when FuncEvalHijackWorker is called as part of an exception.
         _ASSERTE(ret == NULL);
+
+#ifdef FEATURE_SINGLE_THREADED_DEBUGGER
+        if (GetPendingEvals() == NULL || GetPendingEvals()->GetPendingEval(pThread) == NULL)
+        {
+            PauseSingleThreadedDebugger();
+        }
+#endif // FEATURE_SINGLE_THREADED_DEBUGGER
     }
 
 #endif
@@ -14274,18 +14314,28 @@ HRESULT Debugger::FuncEvalSetup(DebuggerIPCE_FuncEvalInfo *pEvalInfo,
 
     bool fInException = pEvalInfo->evalDuringException;
 
+    // Interpreter func-evals execute while the original managed stopped context remains installed.
+    // A chained eval can therefore be queued from the completion callback even though the runtime
+    // thread is temporarily outside a normal GC safe place.
+    CONTEXT *filterContext = GetManagedStoppedCtx(pThread);
+    bool hasSingleThreadedStoppedContext = false;
+#ifdef FEATURE_SINGLE_THREADED_DEBUGGER
+    hasSingleThreadedStoppedContext = filterContext != NULL;
+    bool isThreadAtSafePlace = g_pDebugger->IsThreadAtSafePlace(pThread);
+#else
+    bool isThreadAtSafePlace = g_pDebugger->IsThreadAtSafePlace(pThread);
+#endif
+
     // The thread has to be at a GC safe place for now, just in case the func eval causes a collection. Processing an
     // exception also counts as a "safe place." Eventually, we'd like to have to avoid this check and eval anyway, but
     // that's a way's off...
-    if (!fInException && !g_pDebugger->IsThreadAtSafePlace(pThread))
+    if (!fInException && !hasSingleThreadedStoppedContext && !isThreadAtSafePlace)
         return CORDBG_E_ILLEGAL_AT_GC_UNSAFE_POINT;
 
     // For now, we assume that the target thread must be stopped in managed code due to a single step or a
     // breakpoint. Being stopped while sending a first or second chance exception is also valid, and there may or may
     // not be a filter context when we do a func eval from such places. This will loosen over time, eventually allowing
     // threads that are stopped anywhere in managed code to perform func evals.
-    CONTEXT *filterContext = GetManagedStoppedCtx(pThread);
-
     if (filterContext == NULL && !fInException)
     {
         return CORDBG_E_ILLEGAL_AT_GC_UNSAFE_POINT;

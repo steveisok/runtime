@@ -7,4 +7,5 @@ namespace Microsoft.Diagnostics.DataContractReader.Data;
 internal sealed partial class PortableEntryPoint : IData<PortableEntryPoint>
 {
     [Field] public partial TargetPointer MethodDesc { get; }
+    [Field] public partial TargetPointer InterpreterData { get; }
 }

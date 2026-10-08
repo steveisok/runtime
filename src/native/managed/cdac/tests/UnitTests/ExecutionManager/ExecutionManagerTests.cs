@@ -28,6 +28,15 @@ public class ExecutionManagerTests
             [DataType.HostCodeHeap] = TargetTestHelpers.CreateTypeInfo(emBuilder.HostCodeHeapLayout),
             [DataType.RealCodeHeader] = TargetTestHelpers.CreateTypeInfo(emBuilder.RealCodeHeaderLayout),
             [DataType.InterpreterRealCodeHeader] = TargetTestHelpers.CreateTypeInfo(emBuilder.InterpreterRealCodeHeaderLayout),
+            [DataType.PortableEntryPoint] = new Target.TypeInfo
+            {
+                Fields = new Dictionary<string, Target.FieldInfo>
+                {
+                    [nameof(Data.PortableEntryPoint.MethodDesc)] = new() { Offset = helpers.PointerSize },
+                    [nameof(Data.PortableEntryPoint.InterpreterData)] = new() { Offset = 2 * helpers.PointerSize },
+                },
+                Size = (uint)(3 * helpers.PointerSize + sizeof(int)),
+            },
             [DataType.ReadyToRunInfo] = TargetTestHelpers.CreateTypeInfo(emBuilder.ReadyToRunInfoLayout),
             [DataType.EEJitManager] = TargetTestHelpers.CreateTypeInfo(emBuilder.EEJitManagerLayout),
             [DataType.DynamicFunctionTable] = TargetTestHelpers.CreateTypeInfo(emBuilder.DynamicFunctionTableLayout),
@@ -83,6 +92,7 @@ public class ExecutionManagerTests
             .AddGlobals(emBuilder.Globals)
             .AddGlobals(additionalGlobals)
             .AddContract<IExecutionManager>(version: emBuilder.Version)
+            .AddContract<IFeatureFlags>(version: "c1")
             .AddMockContract<IPlatformMetadata>(Mock.Of<IPlatformMetadata>())
             .AddMockContract(runtimeInfo)
             .Build();
@@ -127,6 +137,38 @@ public class ExecutionManagerTests
         IExecutionManager em = CreateExecutionManagerContract(version, arch);
         var eeInfo = em.GetCodeBlockHandle(TargetCodePointer.Null);
         Assert.Null(eeInfo);
+    }
+
+    [Fact]
+    public void GetInterpreterCodeFromPortableEntryPoint_ReturnsInterpreterData()
+    {
+        MockTarget.Architecture arch = new() { IsLittleEndian = true, Is64Bit = false };
+        MockExecutionManagerBuilder emBuilder =
+            new("c1", arch, MockExecutionManagerBuilder.DefaultAllocationRange);
+        Target.TypeInfo typeInfo = CreateContractTypes(emBuilder)[DataType.PortableEntryPoint];
+        const ulong PortableEntryPointAddress = 0x7000_0000;
+        TargetCodePointer interpreterCode = new(0x1234_5000);
+        MockMemorySpace.HeapFragment fragment = new()
+        {
+            Address = PortableEntryPointAddress,
+            Data = new byte[(int)typeInfo.Size],
+            Name = "Portable entry point",
+        };
+        emBuilder.Builder.TargetTestHelpers.WritePointer(
+            fragment.Data.AsSpan(
+                typeInfo.Fields[nameof(Data.PortableEntryPoint.InterpreterData)].Offset,
+                emBuilder.Builder.TargetTestHelpers.PointerSize),
+            interpreterCode.AsTargetPointer);
+        emBuilder.Builder.AddHeapFragment(fragment);
+        Target target = CreateTarget(
+            emBuilder,
+            (Constants.Globals.FeaturePortableEntrypoints, 1));
+
+        TargetCodePointer actual =
+            target.Contracts.ExecutionManager.GetInterpreterCodeFromPortableEntryPoint(
+                new TargetCodePointer(PortableEntryPointAddress));
+
+        Assert.Equal(interpreterCode, actual);
     }
 
     [Theory]
@@ -1033,11 +1075,13 @@ public class ExecutionManagerTests
         TargetPointer actualMethodDesc = em.GetMethodDesc(eeInfo.Value);
         Assert.Equal(new TargetPointer(expectedMethodDescAddress), actualMethodDesc);
         Assert.Equal(CodeKind.Interpreter, em.GetCodeKind(new TargetCodePointer(methodStart)));
+        Assert.True(em.IsGcSafe(new TargetCodePointer(methodStart)));
 
         eeInfo = em.GetCodeBlockHandle(new TargetCodePointer(methodStart + methodSize / 2));
         Assert.NotNull(eeInfo);
         actualMethodDesc = em.GetMethodDesc(eeInfo.Value);
         Assert.Equal(new TargetPointer(expectedMethodDescAddress), actualMethodDesc);
+        Assert.True(em.IsGcSafe(new TargetCodePointer(methodStart + methodSize / 2)));
     }
 
     [Theory]

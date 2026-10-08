@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using Microsoft.Diagnostics.DataContractReader.Contracts;
 using Microsoft.Diagnostics.DataContractReader.TestInfrastructure;
 using Microsoft.Diagnostics.DataContractReader.TestInfrastructure.ContractDescriptor;
+using Moq;
 using Xunit;
 
 namespace Microsoft.Diagnostics.DataContractReader.Tests.ContractDescriptor;
@@ -112,5 +113,23 @@ public class ContractRegistrationTests
 
         Assert.False(target.Contracts.TryGetContract<IFakeContract>(out IFakeContract? contract));
         Assert.Null(contract);
+    }
+
+    [Fact]
+    public void GCInfo_Wasm_DecodeInterpreterGCInfo_DoesNotThrow()
+    {
+        MockTarget.Architecture arch = new() { IsLittleEndian = true, Is64Bit = false };
+        Mock<IRuntimeInfo> runtimeInfo = new();
+        runtimeInfo.Setup(r => r.GetTargetArchitecture()).Returns(RuntimeInfoArchitecture.Wasm);
+
+        TestPlaceholderTarget target = new TestPlaceholderTarget.Builder(arch)
+            .AddMockContract(runtimeInfo.Object)
+            .AddContract<IGCInfo>(version: "c1")
+            .Build();
+
+        IGCInfo gcInfo = target.Contracts.GCInfo;
+        IGCInfoHandle handle = gcInfo.DecodeInterpreterGCInfo(new TargetPointer(0x1000), gcVersion: 2);
+
+        Assert.NotNull(handle);
     }
 }

@@ -1068,7 +1068,7 @@ RefRemoteValueHome ::RefRemoteValueHome (CordbProcess *                 pProcess
    RemoteValueHome(pProcess, remoteValue)
 {
     // caller supplies remoteValue, to work w/ Func-eval.
-    _ASSERTE((!remoteValue.IsEmpty()) && (remoteValue.cbSize == sizeof (void *)));
+    _ASSERTE((!remoteValue.IsEmpty()) && (remoteValue.cbSize == pProcess->GetTargetPointerSize()));
 
 } // RefRemoteValueHome::RefRemoteValueHome
 

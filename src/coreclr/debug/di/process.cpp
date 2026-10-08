@@ -54,9 +54,41 @@ ICorDebugProcessControl : public IUnknown
     virtual HRESULT STDMETHODCALLTYPE ContinueProcess() = 0;
     virtual HRESULT STDMETHODCALLTYPE ContinueCompleted() = 0;
     virtual HRESULT STDMETHODCALLTYPE StopProcess() = 0;
+    virtual HRESULT STDMETHODCALLTYPE FuncEvalResultConsumed() = 0;
 };
 
 EXTERN_C const IID IID_IDebugChannel;
+
+#ifdef HOST_WINDOWS
+static void LogWasmFuncEval(const char* message)
+{
+    (void)message;
+}
+
+static void LogWasmProcessState(
+    const char* operation,
+    bool synchronized,
+    int stopCount,
+    bool waitingForSuppliedEvent)
+{
+    (void)operation;
+    (void)synchronized;
+    (void)stopCount;
+    (void)waitingForSuppliedEvent;
+}
+
+static void LogWasmRCEvent(
+    const char* operation,
+    DebuggerIPCEventType eventType,
+    bool synchronized,
+    bool waitingForSuppliedEvent)
+{
+    (void)operation;
+    (void)eventType;
+    (void)synchronized;
+    (void)waitingForSuppliedEvent;
+}
+#endif // HOST_WINDOWS
 
 //---------------------------------------------------------------------------------------
 //
@@ -1102,6 +1134,7 @@ CordbProcess::CordbProcess(ULONG64 clrInstanceId,
     m_hHelperThread(NULL),
     m_dispatchedEvent(DB_IPCE_DEBUGGER_INVALID),
     m_continueAfterCallback(false),
+    m_waitingForSuppliedEventWhileSynchronized(false),
     m_hDacModule(hDacModule),
     m_pDacPrimitives(NULL),
     m_pLegacyDac(NULL),
@@ -3464,7 +3497,8 @@ HRESULT CordbProcess::Terminate(unsigned int exitCode)
     // Note that on Windows, the process isn't really terminated until we receive the EXIT_PROCESS_DEBUG_EVENT.
     // Before then, we can still still access the debuggee's address space.  On the other, for Mac debugging,
     // the process can die any time after this call, and so we can no longer call into the DAC.
-    GetShim()->GetNativePipeline()->TerminateProcess(exitCode);
+    if (GetShim())
+        GetShim()->GetNativePipeline()->TerminateProcess(exitCode);
 
     // We just call Continue() so that the debugger doesn't have to. (It's arguably odd
     // to call Continue() after Terminate).
@@ -3569,11 +3603,7 @@ HRESULT CordbProcess::Stop(DWORD dwTimeout)
 
     if (m_pShim == NULL)
     {
-        RSExtSmartPtr<ICorDebugProcessControl> processControl;
-        HRESULT hr = m_pDACDataTarget->QueryInterface(
-            __uuidof(ICorDebugProcessControl),
-            reinterpret_cast<void**>(&processControl));
-        return SUCCEEDED(hr) ? processControl->StopProcess() : E_NOTIMPL;
+        return StopShimless();
     }
 
     HRESULT hr = StopInternal(dwTimeout, VMPTR_AppDomain::NullPtr());
@@ -5363,17 +5393,26 @@ void CordbProcess::RawDispatchEvent(
     case DB_IPCE_FUNC_EVAL_COMPLETE:
         {
             LOG((LF_CORDB, LL_INFO1000, "RCET::DRCE: func eval complete.\n"));
+#ifdef HOST_WINDOWS
+            LogWasmFuncEval("[WASMDBG][DBI] FUNC_EVAL_COMPLETE received.");
+#endif // HOST_WINDOWS
 
             CordbEval *pEval = NULL;
             {
                 pEval = pEvent->FuncEvalComplete.funcEvalKey.UnWrapAndRemove(this);
                 if (pEval  == NULL)
                 {
+#ifdef HOST_WINDOWS
+                    LogWasmFuncEval("[WASMDBG][DBI] FUNC_EVAL_COMPLETE funcEvalKey lookup failed.");
+#endif // HOST_WINDOWS
                     _ASSERTE(!"Bogus FuncEval handle in IPC block.");
                     // Bogus handle in IPC block.
                     break;
                 }
             }
+#ifdef HOST_WINDOWS
+            LogWasmFuncEval("[WASMDBG][DBI] FUNC_EVAL_COMPLETE funcEvalKey lookup succeeded.");
+#endif // HOST_WINDOWS
             _ASSERTE(pEval != NULL);
 
             _ASSERTE(pThread != NULL);
@@ -5423,11 +5462,17 @@ void CordbProcess::RawDispatchEvent(
             // pEval will be pointing to garbage and should not be used by the debugger.
             if (fEvalCompleted)
             {
+#ifdef HOST_WINDOWS
+                LogWasmFuncEval("[WASMDBG][DBI] Dispatching EvalComplete callback.");
+#endif // HOST_WINDOWS
                 PUBLIC_CALLBACK_IN_THIS_SCOPE2(this, pLockHolder, pEvent, "thread=0x%p, eval=0x%p. (Complete)", pThread, pEval);
                 pCallback1->EvalComplete(pResultAppDomain, pThread, pEval);
             }
             else
             {
+#ifdef HOST_WINDOWS
+                LogWasmFuncEval("[WASMDBG][DBI] Dispatching EvalException callback.");
+#endif // HOST_WINDOWS
                 PUBLIC_CALLBACK_IN_THIS_SCOPE2(this, pLockHolder, pEvent, "pThread=0x%p, eval=0x%p. (Exception)", pThread, pEval);
                 pCallback1->EvalException(pResultAppDomain, pThread, pEval);
             }
@@ -10054,15 +10099,48 @@ void CordbRCEventThread::ThreadProc()
                     EX_TRY
                     {
                         pProcess->CopyRCEventFromIPCBlock(pEvent);
+#ifdef HOST_WINDOWS
+                        DebuggerIPCEventType eventType =
+                            static_cast<DebuggerIPCEventType>(pEvent->type & DB_IPCE_TYPE_MASK);
+                        LogWasmRCEvent(
+                            "RC thread consumed",
+                            eventType,
+                            pProcess->GetSynchronized(),
+                            pProcess->IsWaitingForSuppliedEventWhileSynchronized());
+                        if (eventType == DB_IPCE_USER_BREAKPOINT ||
+                            eventType == DB_IPCE_FUNC_EVAL_COMPLETE)
+                        {
+                            LogWasmFuncEval(
+                                eventType == DB_IPCE_USER_BREAKPOINT
+                                    ? "[WASMDBG][DBI] RC thread consumed USER_BREAKPOINT."
+                                    : "[WASMDBG][DBI] RC thread consumed FUNC_EVAL_COMPLETE.");
+                        }
+#endif // HOST_WINDOWS
                         RSLockHolder lockHolder(pProcess->GetProcessLock());
-                        pProcess->SetSynchronized(true);
-                        pProcess->IncStopCount();
-                        m_cordb->ProcessStateChanged();
+                        if (pProcess->TakeWaitingForSuppliedEventWhileSynchronized())
+                        {
+                            m_cordb->ProcessStateChanged();
+                        }
+                        else
+                        {
+                            pProcess->SetSynchronized(true);
+                            pProcess->IncStopCount();
+                            m_cordb->ProcessStateChanged();
+                        }
                         pProcess->HandleRCEvent(
                             pEvent,
                             &lockHolder,
                             m_cordb->m_managedCallback);
                         bool continueAfterCallback = pProcess->TakeContinueAfterCallback();
+#ifdef HOST_WINDOWS
+                        LogWasmRCEvent(
+                            continueAfterCallback
+                                ? "RC callback requested continue"
+                                : "RC callback retained stop",
+                            eventType,
+                            pProcess->GetSynchronized(),
+                            pProcess->IsWaitingForSuppliedEventWhileSynchronized());
+#endif // HOST_WINDOWS
                         lockHolder.Release();
                         if (continueAfterCallback)
                         {
@@ -10128,8 +10206,17 @@ void CordbRCEventThread::ThreadProc()
                 // Note: if a process is not synchronized then there is no way for it to transition to the synchronized
                 // state without this thread receiving an event and taking action. So there is no need to lock the
                 // per-process mutex when checking the process's synchronized flag here.
-                if (!pProcess->GetSynchronized() && pProcess->IsSafeToSendEvents())
+                if ((!pProcess->GetSynchronized() ||
+                        pProcess->IsWaitingForSuppliedEventWhileSynchronized()) &&
+                    pProcess->IsSafeToSendEvents())
                 {
+#ifdef HOST_WINDOWS
+                    LogWasmProcessState(
+                        "RC thread added supplied event wait",
+                        pProcess->GetSynchronized(),
+                        -1,
+                        pProcess->IsWaitingForSuppliedEventWhileSynchronized());
+#endif // HOST_WINDOWS
                     STRESS_LOG2(LF_CORDB, LL_INFO1000, "RCET::TP: listening to process 0x%zx(%zu)\n",
                                 pProcess->m_id, pProcess->m_id);
 
@@ -10190,7 +10277,8 @@ void CordbRCEventThread::ThreadProc()
 
                 // Flushing could have left the process synchronized...
                 // Common case is if the callback didn't call Continue().
-                if (pProcess->GetSynchronized())
+                if (pProcess->GetSynchronized() &&
+                    !pProcess->IsWaitingForSuppliedEventWhileSynchronized())
                 {
                     // remove the process from the wait list by moving all the other processes down one.
                     if ((i + 1) < waitCount)
@@ -13397,9 +13485,20 @@ HRESULT CordbProcess::SendManagedContinue()
     return m_cordb->SendIPCEvent(this, event, CorDBIPC_BUFFER_SIZE);
 }
 
-HRESULT CordbProcess::ContinueShimless()
+HRESULT CordbProcess::StopShimless()
 {
     RSLockHolder stopGoLock(&m_StopGoLock);
+
+#ifdef HOST_WINDOWS
+    {
+        RSLockHolder lockHolder(GetProcessLock());
+        LogWasmProcessState(
+            "StopShimless entering",
+            GetSynchronized(),
+            GetStopCount(),
+            IsWaitingForSuppliedEventWhileSynchronized());
+    }
+#endif // HOST_WINDOWS
 
     RSExtSmartPtr<ICorDebugProcessControl> processControl;
     HRESULT hr = m_pDACDataTarget->QueryInterface(
@@ -13410,13 +13509,78 @@ HRESULT CordbProcess::ContinueShimless()
         return E_NOTIMPL;
     }
 
-    hr = processControl->ContinueProcess();
-    if (hr == S_FALSE)
+    IfFailRet(processControl->StopProcess());
+
     {
-        return S_OK;
+        RSLockHolder lockHolder(GetProcessLock());
+        SetSynchronized(true);
+        IncStopCount();
+        m_waitingForSuppliedEventWhileSynchronized =
+            m_pEventChannel->GetLeftSideEventAvailableHandle() != nullptr;
+        m_cordb->ProcessStateChanged();
+#ifdef HOST_WINDOWS
+        LogWasmProcessState(
+            "StopShimless synchronized",
+            GetSynchronized(),
+            GetStopCount(),
+            IsWaitingForSuppliedEventWhileSynchronized());
+#endif // HOST_WINDOWS
     }
-    IfFailRet(hr);
-    IfFailRet(SendManagedContinue());
+
+    return S_OK;
+}
+
+HRESULT CordbProcess::ContinueShimless()
+{
+    RSLockHolder stopGoLock(&m_StopGoLock);
+
+#ifdef HOST_WINDOWS
+    {
+        RSLockHolder lockHolder(GetProcessLock());
+        LogWasmProcessState(
+            "ContinueShimless entering",
+            GetSynchronized(),
+            GetStopCount(),
+            IsWaitingForSuppliedEventWhileSynchronized());
+    }
+#endif // HOST_WINDOWS
+
+    {
+        RSLockHolder lockHolder(GetProcessLock());
+        if (GetSynchronized() && GetStopCount() > 1)
+        {
+            DecStopCount();
+#ifdef HOST_WINDOWS
+            LogWasmProcessState(
+                "ContinueShimless released nested stop",
+                GetSynchronized(),
+                GetStopCount(),
+                IsWaitingForSuppliedEventWhileSynchronized());
+#endif // HOST_WINDOWS
+            return S_OK;
+        }
+    }
+
+    bool retainTargetStop = m_pEventChannel->HasPendingEventFromLeftSide();
+    RSExtSmartPtr<ICorDebugProcessControl> processControl;
+    if (!retainTargetStop)
+    {
+        HRESULT hr = m_pDACDataTarget->QueryInterface(
+            __uuidof(ICorDebugProcessControl),
+            reinterpret_cast<void**>(&processControl));
+        if (FAILED(hr))
+        {
+            return E_NOTIMPL;
+        }
+
+        hr = processControl->ContinueProcess();
+        if (hr == S_FALSE)
+        {
+            return S_OK;
+        }
+        IfFailRet(hr);
+        IfFailRet(SendManagedContinue());
+    }
 
     {
         RSLockHolder lockHolder(GetProcessLock());
@@ -13425,10 +13589,32 @@ HRESULT CordbProcess::ContinueShimless()
             SetSynchronized(false);
             DecStopCount();
         }
+        m_waitingForSuppliedEventWhileSynchronized = false;
         FlushProcessRunning();
         m_cordb->ProcessStateChanged();
+#ifdef HOST_WINDOWS
+        LogWasmProcessState(
+            "ContinueShimless running",
+            GetSynchronized(),
+            GetStopCount(),
+            IsWaitingForSuppliedEventWhileSynchronized());
+#endif // HOST_WINDOWS
     }
-    return processControl->ContinueCompleted();
+    return retainTargetStop ? S_OK : processControl->ContinueCompleted();
+}
+
+HRESULT CordbProcess::FuncEvalResultConsumed()
+{
+    RSExtSmartPtr<ICorDebugProcessControl> processControl;
+    HRESULT hr = m_pDACDataTarget->QueryInterface(
+        __uuidof(ICorDebugProcessControl),
+        reinterpret_cast<void**>(&processControl));
+    if (FAILED(hr))
+    {
+        return S_OK;
+    }
+
+    return processControl->FuncEvalResultConsumed();
 }
 
 bool CordbProcess::TakeContinueAfterCallback()

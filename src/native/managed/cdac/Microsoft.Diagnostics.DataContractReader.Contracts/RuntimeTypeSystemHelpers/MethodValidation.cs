@@ -191,8 +191,9 @@ internal sealed class MethodValidation
             TargetCodePointer temporaryEntryPoint = GetTemporaryEntryPointIfExists(umd);
             if (temporaryEntryPoint != TargetCodePointer.Null)
             {
-                Contracts.IPrecodeStubs precode = _target.Contracts.PrecodeStubs;
-                TargetPointer methodDesc = precode.GetMethodDescFromStubAddress(temporaryEntryPoint);
+                TargetPointer methodDesc = _target.Contracts.FeatureFlags.IsEnabled(RuntimeFeature.PortableEntrypoints)
+                    ? _target.Contracts.ExecutionManager.NonVirtualEntry2MethodDesc(temporaryEntryPoint)
+                    : _target.Contracts.PrecodeStubs.GetMethodDescFromStubAddress(temporaryEntryPoint);
                 if (methodDesc != methodDescPointer)
                 {
                     return false;

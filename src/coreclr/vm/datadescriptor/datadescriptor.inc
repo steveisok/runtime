@@ -863,6 +863,7 @@ CDAC_TYPE_END(CodePointer)
 CDAC_TYPE_BEGIN(PortableEntryPoint)
 CDAC_TYPE_INDETERMINATE(PortableEntryPoint)
 CDAC_TYPE_FIELD(PortableEntryPoint, T_POINTER, MethodDesc, cdac_data<PortableEntryPoint>::MethodDesc)
+CDAC_TYPE_FIELD(PortableEntryPoint, T_POINTER, InterpreterData, cdac_data<PortableEntryPoint>::InterpreterData)
 CDAC_TYPE_END(PortableEntryPoint)
 #endif
 

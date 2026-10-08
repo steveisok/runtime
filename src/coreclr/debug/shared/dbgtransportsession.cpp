@@ -21,6 +21,27 @@ public:
     BYTE             m_event[CorDBIPC_BUFFER_SIZE];     // buffer for the IPC event
 };
 
+#if defined(RIGHT_SIDE_COMPILE) && defined(HOST_WINDOWS)
+static void LogWasmTransportEvent(
+    const char* operation,
+    DebuggerIPCEventType eventType,
+    IPCEventType ipcEventType = IPCET_Max,
+    DWORD queuedEventCount = 0)
+{
+    DebuggerIPCEventType normalizedEventType =
+        static_cast<DebuggerIPCEventType>(eventType & DB_IPCE_TYPE_MASK);
+    if (normalizedEventType != DB_IPCE_USER_BREAKPOINT &&
+        normalizedEventType != DB_IPCE_FUNC_EVAL_COMPLETE)
+    {
+        return;
+    }
+
+    (void)operation;
+    (void)ipcEventType;
+    (void)queuedEventCount;
+}
+#endif // RIGHT_SIDE_COMPILE && HOST_WINDOWS
+
 static constexpr DWORD TransportEventHeaderSize = 40;
 static constexpr DWORD TransportEventTypeOffset = 0;
 static constexpr DWORD TransportProcessIdOffset = 4;
@@ -697,10 +718,14 @@ HRESULT DbgTransportSession::QueueEvent(const MessageHeader& header, const BYTE*
 
     m_cValidEventBuffers++;
     m_idxEventBufferTail = (m_idxEventBufferTail + 1) % m_cEventBuffers;
-    if (typeWasEmpty)
-    {
-        m_rghEventReadyEvent[entry->m_type]->Set();
-    }
+#if defined(RIGHT_SIDE_COMPILE) && defined(HOST_WINDOWS)
+    LogWasmTransportEvent(
+        typeWasEmpty ? "queued and signaled empty type" : "queued and re-signaled non-empty type",
+        reinterpret_cast<DebuggerIPCEvent*>(&entry->m_event)->type,
+        entry->m_type,
+        m_cValidEventBuffers);
+#endif // RIGHT_SIDE_COMPILE && HOST_WINDOWS
+    m_rghEventReadyEvent[entry->m_type]->Set();
 
     return S_OK;
 }
@@ -877,6 +902,21 @@ WaitEvent *DbgTransportSession::GetDebugEventReadyEvent()
     return m_rghEventReadyEvent[IPCET_DebugEvent];
 }
 
+bool DbgTransportSession::HasPendingEvent(IPCEventType type)
+{
+    TransportLockHolder lock(m_sStateLock);
+    for (DWORD index = 0; index < m_cValidEventBuffers; index++)
+    {
+        DWORD eventIndex = (m_idxEventBufferHead + index) % m_cEventBuffers;
+        if (m_pEventBuffers[eventIndex].m_type == type)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 // Copies the last event received from the other side into the provided buffer. This should only be called
 // (once) after the event returned from GetIPCEEventReadyEvent()/GetDebugEventReadyEvent() has been signalled.
 void DbgTransportSession::GetNextEvent(DebuggerIPCEvent *pEvent, DWORD cbEvent)
@@ -892,6 +932,13 @@ void DbgTransportSession::GetNextEvent(DebuggerIPCEvent *pEvent, DWORD cbEvent)
 
     // Copy the first valid event into the client's buffer.
     memcpy(pEvent, &m_pEventBuffers[m_idxEventBufferHead].m_event, cbEvent);
+#if defined(RIGHT_SIDE_COMPILE) && defined(HOST_WINDOWS)
+    LogWasmTransportEvent(
+        "dequeued",
+        pEvent->type,
+        m_pEventBuffers[m_idxEventBufferHead].m_type,
+        m_cValidEventBuffers);
+#endif // RIGHT_SIDE_COMPILE && HOST_WINDOWS
 
     // Move the index of the head of the valid list forward (which may in fact move it back to the start of
     // the array since the list is circular). This reduces the number of valid entries by one. Note that these
@@ -932,6 +979,9 @@ void DbgTransportSession::GetNextEvent(
 
     DWORD eventIndex = (m_idxEventBufferHead + eventOffset) % m_cEventBuffers;
     memcpy(pEvent, &m_pEventBuffers[eventIndex].m_event, cbEvent);
+#if defined(RIGHT_SIDE_COMPILE) && defined(HOST_WINDOWS)
+    LogWasmTransportEvent("typed dequeue", pEvent->type, type, m_cValidEventBuffers);
+#endif // RIGHT_SIDE_COMPILE && HOST_WINDOWS
 
     for (DWORD index = eventOffset; index + 1 < m_cValidEventBuffers; index++)
     {
@@ -2500,6 +2550,11 @@ void DbgTransportSession::TransportWorker()
                 {
                     HANDLE_CRITICAL_ERROR();
                 }
+#if defined(HOST_WINDOWS)
+                DebuggerIPCEvent* queuedEvent =
+                    reinterpret_cast<DebuggerIPCEvent*>(
+                        &m_pEventBuffers[m_idxEventBufferTail].m_event);
+#endif // HOST_WINDOWS
 
                 {
                     m_pEventBuffers[m_idxEventBufferTail].m_type = sReceiveHeader.TypeSpecificData.Event.m_eIPCEventType;
@@ -2527,9 +2582,15 @@ void DbgTransportSession::TransportWorker()
                     // code in GetNextEvent() does read it for an assert.
                     m_idxEventBufferTail = (m_idxEventBufferTail + 1) % m_cEventBuffers;
 
-                    // Wake the client when this is the first queued event of its multiplexing type.
-                    if (typeWasEmpty)
-                        m_rghEventReadyEvent[m_pEventBuffers[idxCurrentEvent].m_type]->Set();
+                    IPCEventType ipcEventType = m_pEventBuffers[idxCurrentEvent].m_type;
+#if defined(RIGHT_SIDE_COMPILE) && defined(HOST_WINDOWS)
+                    LogWasmTransportEvent(
+                        typeWasEmpty ? "queued and signaled empty type" : "queued and re-signaled non-empty type",
+                        queuedEvent->type,
+                        ipcEventType,
+                        m_cValidEventBuffers);
+#endif // RIGHT_SIDE_COMPILE && HOST_WINDOWS
+                    m_rghEventReadyEvent[ipcEventType]->Set();
                 }
             }
             break;

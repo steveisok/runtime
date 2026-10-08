@@ -441,6 +441,7 @@ public:
     // from the other side.
     WaitEvent *GetIPCEventReadyEvent();
     WaitEvent *GetDebugEventReadyEvent();
+    bool HasPendingEvent(IPCEventType type);
 
     // Copies the last event received from the other side into the provided buffer. This should only be called
     // (once) after the event returned from GetIPCEventReadyEvent()/GetDebugEventReadyEvent() has been signalled.

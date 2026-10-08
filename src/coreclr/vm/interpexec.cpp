@@ -853,7 +853,6 @@ static void InterpBreakpoint(const int32_t *ip, const InterpMethodContextFrame *
             pThreadContext->m_bypassAddress = NULL;
             pThreadContext->m_bypassOpcode = 0;
 
-            pThread->SetFilterContext(&ctx);
             EX_TRY
             {
                 g_pDebugInterface->ProcessAnyPendingEvals(pThread);

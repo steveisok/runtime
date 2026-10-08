@@ -26,6 +26,8 @@ public struct CodeBlockHandle
     TargetPointer GetFuncletStartAddress(CodeBlockHandle codeInfoHandle);
     // Get the method region info (hot and cold code size, and cold code start address)
     void GetMethodRegionInfo(CodeBlockHandle codeInfoHandle, out uint hotSize, out TargetPointer coldStart, out uint coldSize);
+    // If the entrypoint has interpreter data, get the interpreter code address.
+    TargetCodePointer GetInterpreterCodeFromPortableEntryPoint(TargetCodePointer entrypoint);
     // Attempt to get the method desc of an entrypoint
     TargetPointer NonVirtualEntry2MethodDesc(TargetCodePointer entrypoint);
 
@@ -206,6 +208,7 @@ Within a range section fragment, a [nibble map](#nibblemap) structure is used to
 | `LoaderCodeHeap` | `LoaderHeap` | `pointer` | Offset of the embedded `ExplicitControlLoaderHeap` within the `LoaderCodeHeap` object; adding this to the object's base address yields the loader heap address |
 | `Module` | `ReadyToRunInfo` | `pointer` | Pointer to the module's ReadyToRun information |
 | `PortableEntryPoint` | `MethodDesc` | `pointer` | Method desc of portable entrypoint (only defined if `FeaturePortableEntrypoints` is enabled) |
+| `PortableEntryPoint` | `InterpreterData` | `pointer` | Interpreter bytecode data of portable entrypoint (only defined if `FeaturePortableEntrypoints` is enabled) |
 | `R2RExceptionClause` | *(type size)* | `uint32` | Size of a ReadyToRun exception clause in bytes |
 | `R2RExceptionClause` | `ClassToken` | `uint32` | Union field: ClassToken or FilterOffset |
 | `R2RExceptionClause` | `Flags` | `uint32` | Exception clause flags |

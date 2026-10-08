@@ -388,6 +388,7 @@ public class PrecodeStubsTests
             byteCodeAddress = byteCodeStartFragment.Address;
             return stubCodeFragment.Address;
         }
+
     }
 
     private static Target CreateTarget(PrecodeBuilder precodeBuilder)

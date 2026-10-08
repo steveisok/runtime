@@ -21,6 +21,7 @@ public sealed class ExecutionManager_1 : IExecutionManager
     public TargetPointer GetStartAddress(CodeBlockHandle codeInfoHandle) => _executionManagerCore.GetStartAddress(codeInfoHandle);
     public TargetPointer GetFuncletStartAddress(CodeBlockHandle codeInfoHandle) => _executionManagerCore.GetFuncletStartAddress(codeInfoHandle);
     public void GetMethodRegionInfo(CodeBlockHandle codeInfoHandle, out uint hotSize, out TargetPointer coldStart, out uint coldSize) => _executionManagerCore.GetMethodRegionInfo(codeInfoHandle, out hotSize, out coldStart, out coldSize);
+    public TargetCodePointer GetInterpreterCodeFromPortableEntryPoint(TargetCodePointer entrypoint) => _executionManagerCore.GetInterpreterCodeFromPortableEntryPoint(entrypoint);
     public TargetPointer NonVirtualEntry2MethodDesc(TargetCodePointer entrypoint) => _executionManagerCore.NonVirtualEntry2MethodDesc(entrypoint);
     public bool IsFunclet(CodeBlockHandle codeInfoHandle) => _executionManagerCore.IsFunclet(codeInfoHandle);
     public bool IsFilterFunclet(CodeBlockHandle codeInfoHandle) => _executionManagerCore.IsFilterFunclet(codeInfoHandle);

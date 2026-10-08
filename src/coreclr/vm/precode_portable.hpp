@@ -192,6 +192,7 @@ template<>
 struct cdac_data<PortableEntryPoint>
 {
     static constexpr size_t MethodDesc = offsetof(PortableEntryPoint, _pMD);
+    static constexpr size_t InterpreterData = offsetof(PortableEntryPoint, _pInterpreterData);
 
     static_assert(offsetof(PortableEntryPoint, _pActualCode) == 0, "CLR ABI requires _pActualCode to be at offset 0 of PortableEntryPoint");
 };

@@ -826,7 +826,10 @@ internal partial class StackWalk_1 : IStackWalk
             case StackWalkState.Frameless:
                 // Native assertion (stackwalk.cpp): current SP must be below the next Frame.
                 // FaultingExceptionFrame is a special case where it gets pushed after the frame is running.
+                // Interpreted frames are also excluded because SP points to an InterpMethodContextFrame,
+                // while the owning InterpreterFrame has already been skipped by CreateStackWalk.
                 Debug.Assert(
+                    IsInterpreterCode(handle.Context.InstructionPointer) ||
                     !handle.FrameIter.IsValid() ||
                     handle.Context.StackPointer.Value < handle.FrameIter.CurrentFrameAddress.Value ||
                     handle.FrameIter.GetCurrentFrameType() == FrameType.FaultingExceptionFrame,

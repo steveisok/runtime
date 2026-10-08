@@ -109,6 +109,7 @@ public interface IExecutionManager : IContract
     TargetPointer GetStartAddress(CodeBlockHandle codeInfoHandle) => throw new NotImplementedException();
     TargetPointer GetFuncletStartAddress(CodeBlockHandle codeInfoHandle) => throw new NotImplementedException();
     void GetMethodRegionInfo(CodeBlockHandle codeInfoHandle, out uint hotSize, out TargetPointer coldStart, out uint coldSize) => throw new NotImplementedException();
+    TargetCodePointer GetInterpreterCodeFromPortableEntryPoint(TargetCodePointer entrypoint) => entrypoint;
     TargetPointer NonVirtualEntry2MethodDesc(TargetCodePointer entrypoint) => throw new NotImplementedException();
     bool IsFunclet(CodeBlockHandle codeInfoHandle) => throw new NotImplementedException();
     bool IsFilterFunclet(CodeBlockHandle codeInfoHandle) => throw new NotImplementedException();

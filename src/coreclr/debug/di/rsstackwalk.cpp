@@ -502,7 +502,11 @@ HRESULT CordbStackWalk::GetFrameWorker(ICorDebugFrame ** ppFrame)
     IDacDbiInterface::FrameType ft = IDacDbiInterface::kInvalid;
 
     pDAC = GetProcess()->GetDAC();
-    IfFailThrow(pDAC->GetStackWalkCurrentFrameInfo(m_pSFIHandle, &frameData, &ft));
+    HRESULT dacHr = pDAC->GetStackWalkCurrentFrameInfo(
+    m_pSFIHandle,
+    &frameData,
+    &ft);
+    IfFailThrow(dacHr);
 
     if (ft == IDacDbiInterface::kInvalid)
     {

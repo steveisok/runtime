@@ -41,3 +41,7 @@ endif (CLR_CMAKE_TARGET_WIN32)
 
 target_precompile_headers(cordbee_wks PRIVATE [["stdafx.h"]])
 add_dependencies(cordbee_wks eventing_headers)
+
+if (FEATURE_PERFTRACING AND FEATURE_PERFTRACING_DISABLE_THREADS)
+  target_compile_definitions(cordbee_wks PRIVATE PERFTRACING_DISABLE_THREADS)
+endif()

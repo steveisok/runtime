@@ -325,6 +325,26 @@ internal sealed partial class ExecutionManagerCore<T> : IExecutionManager
         jitManager?.GetMethodRegionInfo(range, codeInfoHandle.Address.Value, out hotSize, out coldStart, out coldSize);
     }
 
+    TargetCodePointer IExecutionManager.GetInterpreterCodeFromPortableEntryPoint(TargetCodePointer entrypoint)
+    {
+        if (!_target.Contracts.FeatureFlags.IsEnabled(RuntimeFeature.PortableEntrypoints))
+            return entrypoint;
+
+        try
+        {
+            Data.PortableEntryPoint portableEntryPoint =
+                _target.ProcessedData.GetOrAdd<Data.PortableEntryPoint>(
+                    entrypoint.AsTargetPointer);
+            return portableEntryPoint.InterpreterData == TargetPointer.Null
+                ? entrypoint
+                : new TargetCodePointer(portableEntryPoint.InterpreterData);
+        }
+        catch (VirtualReadException)
+        {
+            return entrypoint;
+        }
+    }
+
     TargetPointer IExecutionManager.NonVirtualEntry2MethodDesc(TargetCodePointer entrypoint)
     {
         if (_target.Contracts.FeatureFlags.IsEnabled(RuntimeFeature.PortableEntrypoints))
@@ -454,6 +474,9 @@ internal sealed partial class ExecutionManagerCore<T> : IExecutionManager
         IExecutionManager eman = this;
         if (eman.GetCodeBlockHandle(instructionPointer) is not CodeBlockHandle cbh)
             return false; // not managed code
+
+        if (eman.GetCodeKind(instructionPointer) == CodeKind.Interpreter)
+            return true;
 
         TargetNUInt relativeOffset = eman.GetRelativeOffset(cbh);
         eman.GetGCInfo(cbh, out TargetPointer gcInfoAddr, out uint gcVersion);

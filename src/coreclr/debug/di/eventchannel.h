@@ -172,6 +172,11 @@ public:
         return nullptr;
     }
 
+    virtual bool HasPendingEventFromLeftSide()
+    {
+        return false;
+    }
+
     //
     // After sending an event to the LS and determining that we need to wait for the LS's acknowledgement,
     // if any failure occurs, the LS may not have reset the Win32 event which is signaled when an event is
