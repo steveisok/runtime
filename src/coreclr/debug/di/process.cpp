@@ -57,6 +57,11 @@ ICorDebugProcessControl : public IUnknown
     virtual HRESULT STDMETHODCALLTYPE FuncEvalResultConsumed() = 0;
 };
 
+#ifdef HOST_UNIX
+static const IID IID_ICorDebugProcessControl =
+    {0xe0b81a4d, 0x0f73, 0x4c4e, {0x9d, 0x28, 0x4b, 0x93, 0xca, 0x31, 0xe4, 0x38}};
+#endif // HOST_UNIX
+
 EXTERN_C const IID IID_IDebugChannel;
 
 #ifdef HOST_WINDOWS
@@ -3872,12 +3877,6 @@ HRESULT CordbProcess::Continue(BOOL fIsOutOfBand)
             return E_INVALIDARG;
         }
 
-        if (AreDispatchingEvent())
-        {
-            m_continueAfterCallback = true;
-            return S_OK;
-        }
-
         return ContinueShimless();
     }
 
@@ -3976,12 +3975,6 @@ HRESULT CordbProcess::ContinueInternal(BOOL fIsOutOfBand)
         if (fIsOutOfBand)
         {
             return E_INVALIDARG;
-        }
-
-        if (AreDispatchingEvent())
-        {
-            m_continueAfterCallback = true;
-            return S_OK;
         }
 
         return ContinueShimless();
@@ -10057,6 +10050,16 @@ void CordbRCEventThread::ProcessStateChanged()
 // Notes:
 //    @dbgtodo shim: eventually hoist the entire RCET into the shim.
 //---------------------------------------------------------------------------------------
+static constexpr bool IsExpectedSuppliedChannelClosure(bool exiting, bool terminated, bool detached)
+{
+    return exiting || terminated || detached;
+}
+
+static_assert(!IsExpectedSuppliedChannelClosure(false, false, false));
+static_assert(IsExpectedSuppliedChannelClosure(true, false, false));
+static_assert(IsExpectedSuppliedChannelClosure(false, true, false));
+static_assert(IsExpectedSuppliedChannelClosure(false, false, true));
+
 void CordbRCEventThread::ThreadProc()
 {
     const WaitHandle *waitSet[MAXIMUM_WAIT_OBJECTS];
@@ -10151,7 +10154,34 @@ void CordbRCEventThread::ThreadProc()
 
                     if (FAILED(hr))
                     {
-                        CORDBSetUnrecoverableError(pProcess, hr, 0);
+                        bool channelClosed = false;
+                        bool expectedClosure = false;
+                        if (hr == E_ABORT)
+                        {
+                            RSLockHolder lockHolder(pProcess->GetProcessLock());
+                            if (!pProcess->IsNeutered() &&
+                                pProcess->GetEventChannel()->IsClosed())
+                            {
+                                channelClosed = true;
+                                expectedClosure = IsExpectedSuppliedChannelClosure(
+                                    pProcess->m_exiting, pProcess->m_terminated, pProcess->m_detached);
+                                pProcess->Terminating(FALSE);
+                            }
+                        }
+                        if (channelClosed)
+                        {
+                            LOG((LF_CORDB, LL_ERROR, "Supplied debugger transport closed, expected=%d\n", expectedClosure));
+                            if (!expectedClosure && m_cordb->m_managedCallback != nullptr)
+                            {
+                                PUBLIC_CALLBACK_IN_THIS_SCOPE_DEBUGGERERROR(pProcess);
+                                m_cordb->m_managedCallback->DebuggerError(
+                                    static_cast<ICorDebugProcess*>(pProcess), hr, 0);
+                            }
+                        }
+                        else
+                        {
+                            CORDBSetUnrecoverableError(pProcess, hr, 0);
+                        }
                     }
                 }
                 else
@@ -13530,6 +13560,19 @@ HRESULT CordbProcess::StopShimless()
     return S_OK;
 }
 
+static constexpr bool ShouldDeferShimlessContinue(bool dispatching, bool synchronized, int stopCount)
+{
+    return dispatching && (!synchronized || stopCount <= 1);
+}
+
+static_assert(ShouldDeferShimlessContinue(true, true, 1));
+static_assert(!ShouldDeferShimlessContinue(true, true, 2));
+static_assert(!ShouldDeferShimlessContinue(true, true, 3));
+static_assert(!ShouldDeferShimlessContinue(false, true, 1));
+static_assert(!ShouldDeferShimlessContinue(false, true, 2));
+static_assert(ShouldDeferShimlessContinue(true, false, 0));
+static_assert(!ShouldDeferShimlessContinue(false, false, 0));
+
 HRESULT CordbProcess::ContinueShimless()
 {
     RSLockHolder stopGoLock(&m_StopGoLock);
@@ -13547,6 +13590,12 @@ HRESULT CordbProcess::ContinueShimless()
 
     {
         RSLockHolder lockHolder(GetProcessLock());
+        // Balance nested stops during callbacks; defer only the final target continue.
+        if (ShouldDeferShimlessContinue(AreDispatchingEvent(), GetSynchronized(), GetStopCount()))
+        {
+            m_continueAfterCallback = true;
+            return S_OK;
+        }
         if (GetSynchronized() && GetStopCount() > 1)
         {
             DecStopCount();

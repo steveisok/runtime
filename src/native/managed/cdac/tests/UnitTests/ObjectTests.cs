@@ -63,7 +63,13 @@ public unsafe class ObjectTests
         types[DataType.ObjectHeader] = TargetTestHelpers.CreateTypeInfo(objectBuilder.ObjectHeaderLayout);
         types[DataType.String] = TargetTestHelpers.CreateTypeInfo(objectBuilder.StringLayout);
         types[DataType.Array] = TargetTestHelpers.CreateTypeInfo(objectBuilder.ArrayLayout);
-        types[DataType.Delegate] = TargetTestHelpers.CreateTypeInfo(objectBuilder.DelegateLayout);
+        Target.TypeInfo delegateType = TargetTestHelpers.CreateTypeInfo(objectBuilder.DelegateLayout);
+        Dictionary<string, Target.FieldInfo> delegateFields = new(delegateType.Fields);
+        foreach (string fieldName in new[] { nameof(Data.Delegate.MethodPtr), nameof(Data.Delegate.MethodPtrAux) })
+        {
+            delegateFields[fieldName] = delegateFields[fieldName] with { TypeName = nameof(DataType.CodePointer) };
+        }
+        types[DataType.Delegate] = delegateType with { Fields = delegateFields };
         types[DataType.ContinuationObject] = TargetTestHelpers.CreateTypeInfo(objectBuilder.ContinuationLayout);
         types[DataType.AsyncResumeInfo] = TargetTestHelpers.CreateTypeInfo(objectBuilder.AsyncResumeInfoLayout);
         types[DataType.SyncTableEntry] = TargetTestHelpers.CreateTypeInfo(objectBuilder.SyncTableEntryLayout);
@@ -86,6 +92,14 @@ public unsafe class ObjectTests
             (nameof(Constants.Globals.SyncBlockIndexMask), (1u << 26) - 1),
             (nameof(Constants.Globals.SyncBlockHashCodeMask), (1u << 26) - 1),
         ]).ToArray();
+
+    private static DelegateInfo ReadTypedDelegateInfo(Target target, TargetPointer address)
+    {
+        Target.TypeInfo delegateType = target.GetTypeInfo(DataType.Delegate);
+        Assert.Equal(nameof(DataType.CodePointer), delegateType.Fields[nameof(Data.Delegate.MethodPtr)].TypeName);
+        Assert.Equal(nameof(DataType.CodePointer), delegateType.Fields[nameof(Data.Delegate.MethodPtrAux)].TypeName);
+        return target.Contracts.Object.GetDelegateInfo(address);
+    }
 
     [Theory]
     [ClassData(typeof(MockTarget.StdArch))]
@@ -377,26 +391,26 @@ public unsafe class ObjectTests
     {
         const ulong TestMethodTable = 0x00000000_10000200;
         const ulong TestTarget = 0x00000000_10000400;
-        const ulong TestMethodPtr = 0x00000000_aaaa0000;
+        ulong testMethodPtr = arch.Is64Bit ? 0xaaaa_bbbb_cccc_0000 : 0xaaaa0000;
         TargetPointer delegateAddress = default;
 
-        IObject contract = CreateObjectContract(
+        TestPlaceholderTarget target = CreateObjectTarget(
             arch,
             objectBuilder =>
             {
                 delegateAddress = objectBuilder.AddDelegateObject(
                     methodTable: TestMethodTable,
                     target: TestTarget,
-                    methodPtr: TestMethodPtr,
+                    methodPtr: testMethodPtr,
                     methodPtrAux: 0,
                     extraData: 0);
             });
 
-        DelegateInfo info = contract.GetDelegateInfo(delegateAddress);
+        DelegateInfo info = ReadTypedDelegateInfo(target, delegateAddress);
 
         Assert.Equal(DelegateType.Closed, info.DelegateType);
         Assert.Equal(TestTarget, info.TargetObject.Value);
-        Assert.Equal(TestMethodPtr, info.TargetMethodPtr.Value);
+        Assert.Equal(testMethodPtr, info.TargetMethodPtr.Value);
     }
 
     [Theory]
@@ -405,10 +419,10 @@ public unsafe class ObjectTests
     {
         const ulong TestMethodTable = 0x00000000_10000200;
         const ulong TestMethodPtr = 0x00000000_aaaa0000;
-        const ulong TestMethodPtrAux = 0x00000000_bbbb0000;
+        ulong testMethodPtrAux = arch.Is64Bit ? 0xbbbb_cccc_dddd_0000 : 0xbbbb0000;
         TargetPointer delegateAddress = default;
 
-        IObject contract = CreateObjectContract(
+        TestPlaceholderTarget target = CreateObjectTarget(
             arch,
             objectBuilder =>
             {
@@ -416,15 +430,15 @@ public unsafe class ObjectTests
                     methodTable: TestMethodTable,
                     target: 0,
                     methodPtr: TestMethodPtr,
-                    methodPtrAux: TestMethodPtrAux,
+                    methodPtrAux: testMethodPtrAux,
                     extraData: 0);
             });
 
-        DelegateInfo info = contract.GetDelegateInfo(delegateAddress);
+        DelegateInfo info = ReadTypedDelegateInfo(target, delegateAddress);
 
         Assert.Equal(DelegateType.Open, info.DelegateType);
         Assert.Equal(0ul, info.TargetObject.Value);
-        Assert.Equal(TestMethodPtrAux, info.TargetMethodPtr.Value);
+        Assert.Equal(testMethodPtrAux, info.TargetMethodPtr.Value);
     }
 
     [Theory]

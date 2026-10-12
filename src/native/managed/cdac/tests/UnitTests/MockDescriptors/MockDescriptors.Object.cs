@@ -183,14 +183,14 @@ internal sealed class MockDelegateObjectData : TypedView
 
     public ulong MethodPtr
     {
-        get => ReadPointerField(MethodPtrFieldName);
-        set => WritePointerField(MethodPtrFieldName, value);
+        get => ReadCodePointerField(MethodPtrFieldName);
+        set => WriteCodePointerField(MethodPtrFieldName, value);
     }
 
     public ulong MethodPtrAux
     {
-        get => ReadPointerField(MethodPtrAuxFieldName);
-        set => WritePointerField(MethodPtrAuxFieldName, value);
+        get => ReadCodePointerField(MethodPtrAuxFieldName);
+        set => WriteCodePointerField(MethodPtrAuxFieldName, value);
     }
 
     public long ExtraData

@@ -276,12 +276,83 @@ ICorDebugValue* CordbValue::CreateHeapValue(CordbAppDomain* pAppDomain, VMPTR_Ob
     return pExtValue;
 }
 
+struct TargetReferenceStorage
+{
+    UINT32 address32;
+    UINT64 address64;
+    ULONG32 size;
+
+    MemoryRange GetMemoryRange()
+    {
+        _ASSERTE(size == sizeof(UINT32) || size == sizeof(UINT64));
+        void* address = size == sizeof(UINT32)
+            ? static_cast<void*>(&address32)
+            : static_cast<void*>(&address64);
+        return MemoryRange(address, size);
+    }
+};
+
+static constexpr HRESULT SerializeTargetReference(
+    CORDB_ADDRESS address, ULONG32 targetPointerSize, TargetReferenceStorage& storage)
+{
+    if (targetPointerSize == sizeof(UINT32))
+    {
+        if (address > UINT32_MAX)
+        {
+            return CORDBG_E_BAD_REFERENCE_VALUE;
+        }
+        storage.address32 = static_cast<UINT32>(address);
+    }
+    else if (targetPointerSize == sizeof(UINT64))
+    {
+        storage.address64 = address;
+    }
+    else
+    {
+        return E_INVALIDARG;
+    }
+    storage.size = targetPointerSize;
+    return S_OK;
+}
+
+static constexpr bool TestTargetReferenceSerialization(
+    CORDB_ADDRESS address, ULONG32 targetPointerSize, HRESULT expectedResult)
+{
+    TargetReferenceStorage storage = {};
+    HRESULT hr = SerializeTargetReference(address, targetPointerSize, storage);
+    if (hr != expectedResult)
+    {
+        return false;
+    }
+    if (hr != S_OK)
+    {
+        return storage.size == 0 && storage.address32 == 0 && storage.address64 == 0;
+    }
+    return storage.size == targetPointerSize &&
+        (storage.size == sizeof(UINT32) ? storage.address32 == address : storage.address64 == address);
+}
+
+static_assert(TestTargetReferenceSerialization(0, 4, S_OK));
+static_assert(TestTargetReferenceSerialization(0x12345678, 4, S_OK));
+static_assert(TestTargetReferenceSerialization(0xabcdef01, 4, S_OK));
+static_assert(TestTargetReferenceSerialization(UINT32_MAX, 4, S_OK));
+static_assert(TestTargetReferenceSerialization(0x100000000ULL, 4, CORDBG_E_BAD_REFERENCE_VALUE));
+static_assert(TestTargetReferenceSerialization(0xffffffffabcdef01ULL, 4, CORDBG_E_BAD_REFERENCE_VALUE));
+static_assert(TestTargetReferenceSerialization(0, 8, S_OK));
+static_assert(TestTargetReferenceSerialization(0x12345678, 8, S_OK));
+static_assert(TestTargetReferenceSerialization(0xfedcba9876543210ULL, 8, S_OK));
+static_assert(TestTargetReferenceSerialization(UINT64_MAX, 8, S_OK));
+static_assert(TestTargetReferenceSerialization(0x12345678, 0, E_INVALIDARG));
+static_assert(TestTargetReferenceSerialization(0x12345678, 3, E_INVALIDARG));
+static_assert(TestTargetReferenceSerialization(0x12345678, 16, E_INVALIDARG));
+
 CordbReferenceValue* CordbValue::CreateHeapReferenceValue(CordbAppDomain* pAppDomain, VMPTR_Object vmObj)
 {
-    VOID* pRemoteAddr = CORDB_ADDRESS_TO_PTR((CORDB_ADDRESS)VmPtrToCookie(vmObj));
-    // This creates a local reference that has a remote address in it. Ie &pRemoteAddr is an address
-    // in the host address space and pRemoteAddr is an address in the target.
-    MemoryRange localReferenceDescription(&pRemoteAddr, sizeof(pRemoteAddr));
+    TargetReferenceStorage localReference = {};
+    IfFailThrow(SerializeTargetReference(
+        VmPtrToCookie(vmObj), pAppDomain->GetProcess()->GetTargetPointerSize(), localReference));
+    // Keep the target-width snapshot alive until Build has synchronously initialized the reference.
+    MemoryRange localReferenceDescription = localReference.GetMemoryRange();
     RSSmartPtr<CordbReferenceValue> pRefValue;
     IfFailThrow(CordbReferenceValue::Build(pAppDomain,
                                            NULL,

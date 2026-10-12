@@ -15,6 +15,11 @@ public:
         return S_OK;
     }
 
+    bool IsClosed() override
+    {
+        return m_pTransport->IsClosed();
+    }
+
     void Detach() override
     {
     }
@@ -78,10 +83,11 @@ public:
     {
         while (true)
         {
-            m_pTransport->GetNextEvent(
+            HRESULT hr = m_pTransport->GetNextEvent(
                 pReplyEvent,
                 static_cast<DWORD>(eventSize),
                 IPCET_OldStyle);
+            IfFailRet(hr);
             if ((pReplyEvent->type & DB_IPCE_TYPE_MASK) != DB_IPCE_SYNC_COMPLETE)
             {
                 return S_OK;
@@ -108,11 +114,10 @@ public:
 
     HRESULT GetEventFromLeftSide(DebuggerIPCEvent * pLocalManagedEvent) override
     {
-        m_pTransport->GetNextEvent(
+        return m_pTransport->GetNextEvent(
             pLocalManagedEvent,
             CorDBIPC_BUFFER_SIZE,
             IPCET_DebugEvent);
-        return S_OK;
     }
 
 private:

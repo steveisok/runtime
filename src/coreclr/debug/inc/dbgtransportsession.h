@@ -385,6 +385,7 @@ public:
     // SS_Resync). On either side the session will no longer be functional after this call returns (though
     // Init() may be called again to start over from the beginning).
     void Shutdown();
+    bool IsClosed();
 
 #ifdef RIGHT_SIDE_COMPILE
     // Used by debugger side (RS) to cleanup the target (LS) named pipes
@@ -446,7 +447,7 @@ public:
     // Copies the last event received from the other side into the provided buffer. This should only be called
     // (once) after the event returned from GetIPCEventReadyEvent()/GetDebugEventReadyEvent() has been signalled.
     void GetNextEvent(DebuggerIPCEvent *pEvent, DWORD cbEvent);
-    void GetNextEvent(DebuggerIPCEvent *pEvent, DWORD cbEvent, IPCEventType type);
+    HRESULT GetNextEvent(DebuggerIPCEvent *pEvent, DWORD cbEvent, IPCEventType type);
 
 #ifdef RIGHT_SIDE_COMPILE
     // Read and write memory on the LS from the RS.
@@ -745,6 +746,12 @@ private:
     DWORD           m_idxEventBufferHead;                   // Index of the first valid event
     DWORD           m_idxEventBufferTail;                   // Index of the first invalid event
     WaitEvent *m_rghEventReadyEvent[IPCET_Max] = {};        // The event signalled when a new event arrives
+
+#ifdef RIGHT_SIDE_COMPILE
+    DWORD m_dwLastSyncCompleteId;
+#endif // RIGHT_SIDE_COMPILE
+
+    bool IsEventReady(const DbgEventBufferEntry& entry) const;
 
 #ifndef RIGHT_SIDE_COMPILE
     // The LS requires the addresses of a couple of runtime data structures in order to service MT_GetDCB etc.

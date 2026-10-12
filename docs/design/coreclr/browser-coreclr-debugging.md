@@ -84,17 +84,26 @@ The runtime base and CLR instance ID identify the single browser runtime. Target
 memory access is based on WebAssembly linear-memory offsets rather than an
 operating-system process address space.
 
+Local snapshots of heap references must also use the target pointer width.
+Universal DBI stores a target object address in a checked 32-bit or 64-bit
+integer before passing its byte view to reference initialization; a host
+`void*` is not a target-width snapshot. The storage stays alive through
+synchronous initialization. `CORDB_ADDRESS` uses zero-extension, so an address
+that cannot fit a 32-bit target is rejected rather than truncated. This local
+snapshot is not the little-endian wire representation of debugger IPC.
+
 ## Loading the universal DBI and DAC
 
 After receiving valid target information, Concord resolves both universal
-components from its browser assets directory:
+components from its browser assets directory. Windows uses
+`mscordbi_universal.dll` and `mscordaccore_universal.dll`; macOS uses
+`libmscordbi_universal.dylib` and `libmscordaccore_universal.dylib`; Linux uses
+`libmscordbi_universal.so` and `libmscordaccore_universal.so`. These are
+host-native diagnostic libraries, not WebAssembly modules. "Universal" refers
+to the diagnostic implementation, not a fat Mach-O binary or a library that can
+be loaded on every host.
 
-```text
-mscordbi_universal.dll
-mscordaccore_universal.dll
-```
-
-Concord loads `mscordbi_universal.dll` and resolves:
+Concord loads the host-native universal DBI and resolves:
 
 - `OpenVirtualProcessImpl4`;
 - `RegisterVirtualProcessImpl`.
@@ -103,7 +112,7 @@ It calls `OpenVirtualProcessImpl4` with:
 
 - the browser CLR instance ID;
 - `CBrowserDebugChannel` as an `ICorDebugMutableDataTarget`;
-- the path to `mscordaccore_universal.dll`;
+- the path to the host-native universal DAC;
 - the target contract descriptor address;
 - the requested `ICorDebugProcess` interface.
 
@@ -147,6 +156,21 @@ callback sequence by enumerating the virtual process and replaying:
 
 Continue requests issued while this initial callback sequence is being replayed
 are deferred until replay finishes.
+
+During subsequent runtime callbacks, universal DBI balances nested `Stop` requests
+as their matching `Continue` requests arrive. Only the final target continue is
+deferred until callback dispatch finishes. This keeps symbol-loading stop/continue
+scopes balanced without resuming the target inside a callback or bypassing queued
+debugger events.
+
+The supplied-channel DBI publishes runtime debug callbacks only after receiving
+the ordered `DB_IPCE_SYNC_COMPLETE` marker for their stop batch. For example, both
+exception callbacks must be received before either can continue the target. The
+transport message IDs associate callbacks with the completed batch; synchronous
+request replies remain immediately available on the old-style event channel.
+Closing the supplied channel wakes batch and reply consumers. Orderly teardown
+uses the existing virtual-process termination signaling; an unexpected closure
+is reported through `DebuggerError`, without fabricating an `ExitProcess` callback.
 
 ## Browser debug channel protocol
 
@@ -597,6 +621,229 @@ transitions without making BrowserDebugProxy understand DBI internals.
   until it has returned the exact number of bytes requested by DBI.
 - DAC and DBI binaries must match the contract and interfaces expected by the
   runtime and Concord deployment.
+
+## Reproducing the runtime build
+
+This section covers runtime source and artifacts only. Cross-repository debugger
+deployment, browser launch, application entry selection, and measurement runners
+belong to their respective repositories. Do not copy their implementation code or
+host-specific configuration into this runtime document.
+
+### Source, prerequisites, and host selection
+
+The tested prototype starts from
+[`a2016b8794108a3650876bfd91a7a2fd31054d2d`](https://github.com/thaystg/runtime/commit/a2016b8794108a3650876bfd91a7a2fd31054d2d)
+on `thaystg/runtime`, branch `dev/thays/wasm_coreclr_debugger_cdac`, plus the
+runtime corrections below. Fetch that fork explicitly; neither the current
+`dotnet/runtime` default branch nor a moving prototype branch tip identifies this
+source snapshot. A replay patch is local source provenance, not an additional
+remote commit. Apply it to the exact base before building. The optional sample
+`Debugger.Break()` patch is a workload entry, not an engine prerequisite.
+
+Follow the [platform requirements](/docs/workflow/README.md#introduction) and
+[CoreCLR build guide](/docs/workflow/building/coreclr/README.md). The runtime
+checkout's `global.json` pins SDK `11.0.100-rc.1.26420.103` and Arcade/shared
+framework SDK `12.0.0-beta.26471.108`. Use `dotnet.sh` or `dotnet.cmd`, not an
+arbitrary globally selected SDK. The package branding is `12.0.0-dev`, while
+this source builds `net11.0` framework assets; the package version is not the
+target framework version. Emscripten `6.0.2` is pinned by
+`src/mono/browser/emscripten-version.txt` and provisioned by the browser subset.
+Native CMake/compiler/linker tools and the NativeAOT prerequisites are needed
+for the host universal DAC. Restore uses the public package sources in
+`NuGet.config`, including the .NET engineering/tools and .NET 11/12 feeds; do
+not add credentials or personal feed configuration to a source snapshot.
+
+The successful macOS arm64 environment used CMake 3.29.0, Ninja 1.13.2, and
+Apple Clang 21.0.0. These are observed versions, not new minimum requirements.
+SDK provisioning and tool feeds remain external dependencies; a source patch is
+not an offline toolchain bundle.
+
+The browser target is always `browser`/`wasm`. Build the diagnostic libraries
+separately for the OS and architecture of the native debugger process, for
+example `osx`/`arm64`, not for `browser`/`wasm`. Keep source, configuration,
+package versions, SDK tasks, and protocol expectations consistent across the
+two builds.
+
+| Native debugger host | Artifact names | Verification status |
+|---|---|---|
+| macOS arm64 | `libmscordbi_universal.dylib`, `libmscordaccore_universal.dylib` | Built, loaded, exports resolved, and real browser attach/stack/Locals/normal stepping exercised |
+| macOS x64 | Same `.dylib` names | Repository build parameterization exists; this experiment did not build or validate the x64 deployment |
+| Windows | `mscordbi_universal.dll`, `mscordaccore_universal.dll` | Windows build/export branches exist in source; no Windows end-to-end validation in this experiment |
+| Linux | `libmscordbi_universal.so`, `libmscordaccore_universal.so` | Unix build/export branches exist in source; no Linux end-to-end validation in this experiment |
+
+On Unix, select `HOST_OS` and `HOST_ARCH` for the native debugger host and build
+from the runtime checkout root. These exact values were exercised on macOS:
+
+```bash
+HOST_OS=osx
+HOST_ARCH=arm64
+export DOTNET_WASM_TOOL_CACHE_DIR="$PWD/.dotnet/wasm-tools"
+./build.sh clr+libs -os browser -a wasm -c Debug
+./build.sh clr.runtime+tools.cdac -os "$HOST_OS" -a "$HOST_ARCH" -c Debug
+```
+
+Use `linux` and its supported native architecture only as a source-supported,
+not experimentally validated, alternative. The repository's Windows entrypoint
+accepts the corresponding subset/OS/architecture parameters:
+
+```powershell
+$HostArch = "x64"
+$env:DOTNET_WASM_TOOL_CACHE_DIR = Join-Path $PWD ".dotnet/wasm-tools"
+.\build.cmd clr+libs -os browser -a wasm -c Debug
+.\build.cmd clr.runtime+tools.cdac -os windows -a $HostArch -c Debug
+```
+
+These Windows commands are entrypoint-supported equivalents, not recorded
+successful builds. Follow the Windows toolchain requirements before using them.
+The explicit WASM tool cache override avoids the default shared main-checkout
+cache when working in an isolated checkout.
+
+Host-native installed libraries are under
+`artifacts/bin/coreclr/<host-os>.<host-arch>.Debug/`. The universal DBI exports
+`OpenVirtualProcessImpl4` and `RegisterVirtualProcessImpl`; the DAC exports
+`DacDbiInterfaceInstance`, `CLRDataCreateInstance`, and its cDAC initialization
+entrypoints. Verify native loading and required exports on the deployment host
+before attaching to a browser. On macOS, matching `.dylib.dwarf` files may be
+kept beside the libraries; they are symbols, not additional runtime libraries.
+
+### Incremental native rebuilds and interpreted packages
+
+Only after a successful baseline has produced the native object trees, the
+following targets were used for the two-field target-descriptor correction:
+
+```bash
+cmake --build artifacts/obj/coreclr/browser.wasm.Debug --target coreclr_static --parallel 6
+cmake --install artifacts/obj/coreclr/browser.wasm.Debug --component runtime
+cmake --build artifacts/obj/browser-wasm.Debug --target browserhost --parallel 6
+cmake --install artifacts/obj/browser-wasm.Debug --component runtime
+```
+
+A host-only DBI correction can be rebuilt independently:
+
+```bash
+cmake --build "artifacts/obj/coreclr/$HOST_OS.$HOST_ARCH.Debug" --target mscordbi_universal --parallel 6
+```
+
+The resulting DBI and its symbols are in that object tree's
+`dlls/mscordbi_universal/` directory. A targeted build is not an installation:
+stage those exact outputs explicitly, rather than assuming a previous installed
+copy was updated. CMake target names and object-tree paths are from this
+prototype; do not treat them as a replacement for the baseline scripts.
+
+The validated debugger profile is interpreted, untrimmed Debug with plain DLLs:
+`PublishReadyToRun=false`, `RunAOTCompilation=false`, `WasmEnableWebcil=false`,
+and `WasmPreloadAssets=false`. This is not a claim of mixed/R2R or default
+application parity. Create the interpreted shipping runtime package explicitly:
+
+```bash
+./dotnet.sh build src/installer/pkg/sfx/Microsoft.NETCore.App/Microsoft.NETCore.App.Runtime.CoreCLR.sfxproj \
+  -c Debug -p:TargetOS=browser -p:TargetArchitecture=wasm \
+  -p:RuntimeConfiguration=Debug -p:LibrariesConfiguration=Debug \
+  -p:RuntimeFlavor=CoreCLR -p:PublishReadyToRun=false
+```
+
+The runtime and matching `Microsoft.NET.Sdk.WebAssembly.Pack.12.0.0-dev.nupkg`
+are under `artifacts/packages/Debug/Shipping/`. The direct SFX project defaults
+to framework R2R packaging; its `PublishReadyToRun=false` override is necessary
+for this plain-DLL debugger cohort. Otherwise the shipping `RuntimeList.xml`
+can declare raw framework `native/r2r/*.wasm` assets that this profile's boot
+generation rejects.
+
+Do not confuse the shipping package with the existing in-tree test layout at
+`artifacts/bin/microsoft.netcore.app.runtime.browser-wasm/Debug/`. A successful
+SFX build does not establish that every file and manifest in that directory was
+refreshed. Extract the package's complete `data/` and `runtimes/` trees to a
+separate clean consumer layout, and retain matching symbols from the same build
+if needed. Do not overlay a shipping layout onto the library-output directory
+used as input to another SFX build: a relocated duplicate CoreLib can cause
+duplicate package entries.
+
+Publish with the matching SDK pack/tasks, runtime pack, and targeting pack.
+Use a fresh isolated package cache when replacing a locally built package with
+the same version; otherwise NuGet may reuse the prior extraction. Preserve the
+previous complete pack and application publication before restaging. Do not
+clear a shared user cache or silently combine differently built same-version
+packages.
+
+The existing runtime-owned sample is
+`src/mono/sample/wasm/browser/Wasm.Browser.Sample.csproj`. Its checked source
+defaults to the non-R2R profile. The following successful in-tree publication
+also disabled trimming, retained portable PDBs, and disabled fingerprinting
+only for this reference sample:
+
+```bash
+./dotnet.sh msbuild src/mono/sample/wasm/browser/Wasm.Browser.Sample.csproj \
+  -t:BuildSampleInTree -p:Configuration=Debug -p:RuntimeFlavor=CoreCLR \
+  -p:PublishTrimmed=false -p:WasmEnableWebcil=false -p:WasmPreloadAssets=false \
+  '-p:BuildAdditionalArgs=-p:PublishTrimmed=false -p:DebugType=portable -p:CopyOutputSymbolsToPublishDirectory=true -p:WasmEnableWebcil=false -p:WasmFingerprintAssets=false -p:WasmPreloadAssets=false -p:WasmBuildOnlyAfterPublish=true'
+```
+
+`BuildSampleInTree` clears the sample's output before its nested publish.
+Afterward stage the selected host-native DBI/DAC beside the framework assets
+for the consuming debugger's deployment contract; do not accidentally recopy
+an older host DBI from a previous publication. Other applications can retain
+fingerprinting, but must regenerate boot metadata and integrity for their own
+complete publication. Never replace only `dotnet.native.wasm` inside an old
+boot/fingerprinted cohort. Check each declared asset hash against its actual
+file; JS-module entries can be name-only.
+
+### Required corrections, invariants, and validation
+
+The replay source includes the Unix private-interface IID, balanced nested
+shimless continues, supplied-channel `SYNC_COMPLETE` batch publication and
+closure handling, target-width heap-reference snapshots, and the two delegate
+descriptor annotations. Closure handling preserves genuine error reporting
+and does not synthesize process-exit events. The optional sample break is
+separate from these engine requirements.
+
+`Delegate.MethodPtr` and `MethodPtrAux` are VM `PCODE` fields and must be
+described as `CodePointer`, not a data `pointer`. The production cDAC typed
+reader and contract already require this. Correct the target descriptor and
+typed mocks; do not weaken the host reader. On WASM32 the embedded descriptor
+has `Delegate` size 24, method fields at offsets 12 and 16, and `CodePointer`
+size 4. The correction changes type annotations, not field layout.
+
+The host-reference invariant is independent: a cached heap reference passed
+to `GetObjectAddress` has exactly the target's pointer width, despite a
+64-bit native debugger. `CORDB_ADDRESS` is zero-extended; unrepresentable
+32-bit addresses are errors, not values to truncate. Keep the strict consumer
+assertion and local typed-storage lifetime through synchronous initialization.
+
+The focused managed regression command was:
+
+```bash
+./dotnet.sh test src/native/managed/cdac/tests/UnitTests/Microsoft.Diagnostics.DataContractReader.Tests.csproj \
+  -c Debug --filter 'FullyQualifiedName~ObjectTests'
+```
+
+All 60 Object tests passed, including existing closed/open delegate theories
+on 32/64-bit little/big-endian mocks with explicit code-pointer metadata.
+The original pointer metadata failed eight focused cases. Host-native builds
+also compile 13 assertions exercising the actual heap-reference serialization
+helper, plus 27 nested-continue/batch/closure policy assertions. The original
+host-sized serialization policy failed nine of its 13 cases. An auxiliary
+native check exercised 15 actual helper/`MemoryRange` byte-view cases under
+ASan/UBSan on arm64; it is source-derived validation tooling, not a runtime
+build dependency.
+
+Historical accepted macOS Debug artifacts had SHA-256 digests
+`1929c85160b4d4ed25c7c0e294a811e8b5e681d0865aa7baa255bc96e7c37109`
+(browser WASM), `3e9088884a3a8d1eb1502995362537fd3651467f0ab44e6b2f1363715dd25bdb`
+(host DBI), and `f437b00eb548b36032500a4373cfd7fe05210afd8bd4a55ee25c7c29dcc1afe6`
+(host DAC). Earlier host DBI cohorts predated the heap-reference fix. These
+digests identify local experiment outputs, not downloadable remote artifacts
+or deterministic rebuild requirements: build paths, tool versions, and debug
+information can change binary hashes. Record fresh source/patch and artifact
+digests for each new complete deployment.
+
+Real macOS arm64 reference-sample stepping and a synchronous application
+workload exercised automatic stack/Locals/source UI and successive normal
+steps with default JMC. The filtering workload's later step after implicit
+UI evaluation remains unresolved and deferred; it is not established as an
+async-await limitation. Windows/Linux/x64 deployment and comprehensive
+evaluation are unvalidated. Native close-path `E_FAIL`/broken-pipe reporting
+and bounded helper termination remain separate limitations; this source does
+not establish complete graceful teardown.
 
 ## Main implementation files
 

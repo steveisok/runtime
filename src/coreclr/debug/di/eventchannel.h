@@ -255,6 +255,11 @@ public:
     //
 
     virtual HRESULT GetEventFromLeftSide(DebuggerIPCEvent * pLocalManagedEvent) = 0;
+
+    virtual bool IsClosed()
+    {
+        return false;
+    }
 };
 
 //-----------------------------------------------------------------------------

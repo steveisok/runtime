@@ -18,8 +18,40 @@ struct DbgEventBufferEntry
 {
 public:
     IPCEventType     m_type;
+#ifdef RIGHT_SIDE_COMPILE
+    DWORD            m_messageId;
+#endif // RIGHT_SIDE_COMPILE
     BYTE             m_event[CorDBIPC_BUFFER_SIZE];     // buffer for the IPC event
 };
+
+#ifdef RIGHT_SIDE_COMPILE
+static constexpr bool IsTransportEventReady(
+    bool channelSupplied, IPCEventType type, DWORD messageId, DWORD syncCompleteId, bool sessionClosed = false)
+{
+    return !channelSupplied ||
+        (!sessionClosed && (type != IPCET_DebugEvent || messageId <= syncCompleteId));
+}
+
+// Both exception callbacks remain unpublished until the ordered sync marker is received.
+static_assert(!IsTransportEventReady(true, IPCET_DebugEvent, 100, 0));
+static_assert(!IsTransportEventReady(true, IPCET_DebugEvent, 2, 0));
+static_assert(!IsTransportEventReady(true, IPCET_DebugEvent, 2, 1));
+static_assert(IsTransportEventReady(true, IPCET_DebugEvent, 1, 3));
+static_assert(IsTransportEventReady(true, IPCET_DebugEvent, 2, 3));
+static_assert(!IsTransportEventReady(true, IPCET_DebugEvent, 4, 3));
+// Single-event stops use the same marker; replies and native-pipeline events remain immediate.
+static_assert(IsTransportEventReady(true, IPCET_DebugEvent, 4, 5));
+static_assert(IsTransportEventReady(true, IPCET_DebugEvent, 6, 6));
+static_assert(IsTransportEventReady(true, IPCET_OldStyle, 7, 5));
+static_assert(IsTransportEventReady(false, IPCET_DebugEvent, 7, 0));
+static_assert(IsTransportEventReady(false, IPCET_OldStyle, 7, 0));
+// Reset, closure, and the last valid DWORD ID cannot publish an incomplete batch.
+static_assert(!IsTransportEventReady(true, IPCET_DebugEvent, 1, 0));
+static_assert(!IsTransportEventReady(true, IPCET_DebugEvent, 1, 3, true));
+static_assert(!IsTransportEventReady(true, IPCET_OldStyle, 7, 5, true));
+static_assert(!IsTransportEventReady(true, IPCET_DebugEvent, UINT32_MAX, UINT32_MAX - 1));
+static_assert(IsTransportEventReady(true, IPCET_DebugEvent, UINT32_MAX, UINT32_MAX));
+#endif // RIGHT_SIDE_COMPILE
 
 #if defined(RIGHT_SIDE_COMPILE) && defined(HOST_WINDOWS)
 static void LogWasmTransportEvent(
@@ -902,13 +934,29 @@ WaitEvent *DbgTransportSession::GetDebugEventReadyEvent()
     return m_rghEventReadyEvent[IPCET_DebugEvent];
 }
 
+bool DbgTransportSession::IsClosed()
+{
+    TransportLockHolder lock(m_sStateLock);
+    return m_eState == SS_Closed;
+}
+
+bool DbgTransportSession::IsEventReady(const DbgEventBufferEntry& entry) const
+{
+#ifdef RIGHT_SIDE_COMPILE
+    return IsTransportEventReady(
+        m_fChannelSupplied, entry.m_type, entry.m_messageId, m_dwLastSyncCompleteId, m_eState == SS_Closed);
+#else
+    return true;
+#endif // RIGHT_SIDE_COMPILE
+}
+
 bool DbgTransportSession::HasPendingEvent(IPCEventType type)
 {
     TransportLockHolder lock(m_sStateLock);
     for (DWORD index = 0; index < m_cValidEventBuffers; index++)
     {
         DWORD eventIndex = (m_idxEventBufferHead + index) % m_cEventBuffers;
-        if (m_pEventBuffers[eventIndex].m_type == type)
+        if (m_pEventBuffers[eventIndex].m_type == type && IsEventReady(m_pEventBuffers[eventIndex]))
         {
             return true;
         }
@@ -929,6 +977,7 @@ void DbgTransportSession::GetNextEvent(DebuggerIPCEvent *pEvent, DWORD cbEvent)
 
     // There must be at least one valid event waiting (this call does not block).
     _ASSERTE(m_cValidEventBuffers);
+    _ASSERTE(IsEventReady(m_pEventBuffers[m_idxEventBufferHead]));
 
     // Copy the first valid event into the client's buffer.
     memcpy(pEvent, &m_pEventBuffers[m_idxEventBufferHead].m_event, cbEvent);
@@ -949,13 +998,13 @@ void DbgTransportSession::GetNextEvent(DebuggerIPCEvent *pEvent, DWORD cbEvent)
     _ASSERTE(((m_idxEventBufferHead + m_cValidEventBuffers) % m_cEventBuffers) == m_idxEventBufferTail);
 
     // If there's at least one more valid event we can signal event ready now.
-    if (m_cValidEventBuffers)
+    if (m_cValidEventBuffers && IsEventReady(m_pEventBuffers[m_idxEventBufferHead]))
     {
         m_rghEventReadyEvent[m_pEventBuffers[m_idxEventBufferHead].m_type]->Set();
     }
 }
 
-void DbgTransportSession::GetNextEvent(
+HRESULT DbgTransportSession::GetNextEvent(
     DebuggerIPCEvent *pEvent,
     DWORD cbEvent,
     IPCEventType type)
@@ -965,17 +1014,26 @@ void DbgTransportSession::GetNextEvent(
 
     TransportLockHolder sLockHolder(m_sStateLock);
 
+    if (m_eState == SS_Closed)
+    {
+        return E_ABORT;
+    }
+
     DWORD eventOffset = 0;
     while (eventOffset < m_cValidEventBuffers)
     {
         DWORD eventIndex = (m_idxEventBufferHead + eventOffset) % m_cEventBuffers;
-        if (m_pEventBuffers[eventIndex].m_type == type)
+        if (m_pEventBuffers[eventIndex].m_type == type && IsEventReady(m_pEventBuffers[eventIndex]))
         {
             break;
         }
         eventOffset++;
     }
     _ASSERTE(eventOffset < m_cValidEventBuffers);
+    if (eventOffset == m_cValidEventBuffers)
+    {
+        return E_UNEXPECTED;
+    }
 
     DWORD eventIndex = (m_idxEventBufferHead + eventOffset) % m_cEventBuffers;
     memcpy(pEvent, &m_pEventBuffers[eventIndex].m_event, cbEvent);
@@ -1003,12 +1061,14 @@ void DbgTransportSession::GetNextEvent(
     {
         DWORD remainingEventIndex =
             (m_idxEventBufferHead + index) % m_cEventBuffers;
-        if (m_pEventBuffers[remainingEventIndex].m_type == type)
+        if (m_pEventBuffers[remainingEventIndex].m_type == type &&
+            IsEventReady(m_pEventBuffers[remainingEventIndex]))
         {
             m_rghEventReadyEvent[type]->Set();
             break;
         }
     }
+    return S_OK;
 }
 
 
@@ -1850,6 +1910,9 @@ void DbgTransportSession::InitSessionState()
     m_cValidEventBuffers = 0;
     m_idxEventBufferHead = 0;
     m_idxEventBufferTail = 0;
+#ifdef RIGHT_SIDE_COMPILE
+    m_dwLastSyncCompleteId = 0;
+#endif // RIGHT_SIDE_COMPILE
 }
 
 void DbgTransportSession::SetSessionState(SessionState state)
@@ -1868,6 +1931,17 @@ void DbgTransportSession::SetSessionStateUnderLock(SessionState state)
         bool result = minipal_condition_variable_broadcast(&m_sessionStateCondition);
         _ASSERTE(result);
         (void)result;
+    }
+    if (state == SS_Closed && m_fChannelSupplied)
+    {
+        // Unblock consumers even if the stream ended before the stop-batch marker.
+        for (WaitEvent* event : m_rghEventReadyEvent)
+        {
+            if (event != nullptr)
+            {
+                event->Set();
+            }
+        }
     }
 #endif // RIGHT_SIDE_COMPILE
 }
@@ -2542,26 +2616,40 @@ void DbgTransportSession::TransportWorker()
                 BYTE eventBuffer[CorDBIPC_BUFFER_SIZE];
                 if (!ReceiveBlock(eventBuffer, sReceiveHeader.m_cbDataBlock))
                     HANDLE_TRANSIENT_ERROR();
-                if (!MarshalEventFromTransport(
-                        eventBuffer,
-                        sReceiveHeader.m_cbDataBlock,
-                        reinterpret_cast<DebuggerIPCEvent *>(
-                            &m_pEventBuffers[m_idxEventBufferTail].m_event)))
                 {
-                    HANDLE_CRITICAL_ERROR();
-                }
-#if defined(HOST_WINDOWS)
-                DebuggerIPCEvent* queuedEvent =
-                    reinterpret_cast<DebuggerIPCEvent*>(
-                        &m_pEventBuffers[m_idxEventBufferTail].m_event);
-#endif // HOST_WINDOWS
-
-                {
-                    m_pEventBuffers[m_idxEventBufferTail].m_type = sReceiveHeader.TypeSpecificData.Event.m_eIPCEventType;
-
                     // We must take the lock to update the count of valid entries though, since clients can
                     // touch this field as well.
                     TransportLockHolder sLockHolder(m_sStateLock);
+
+                    DbgEventBufferEntry& entry = m_pEventBuffers[m_idxEventBufferTail];
+                    if (!MarshalEventFromTransport(
+                            eventBuffer,
+                            sReceiveHeader.m_cbDataBlock,
+                            reinterpret_cast<DebuggerIPCEvent*>(entry.m_event)))
+                    {
+                        HANDLE_CRITICAL_ERROR();
+                    }
+                    entry.m_type = sReceiveHeader.TypeSpecificData.Event.m_eIPCEventType;
+#ifdef RIGHT_SIDE_COMPILE
+                    entry.m_messageId = sReceiveHeader.m_dwId;
+                    DebuggerIPCEvent* queuedEvent = reinterpret_cast<DebuggerIPCEvent*>(entry.m_event);
+                    if (m_fChannelSupplied && entry.m_type == IPCET_OldStyle &&
+                        (queuedEvent->type & DB_IPCE_TYPE_MASK) == DB_IPCE_SYNC_COMPLETE)
+                    {
+                        // The sender emits all callbacks for a stop before this ordered marker.
+                        m_dwLastSyncCompleteId = entry.m_messageId;
+                        for (DWORD index = 0; index < m_cValidEventBuffers; index++)
+                        {
+                            DWORD eventIndex = (m_idxEventBufferHead + index) % m_cEventBuffers;
+                            if (m_pEventBuffers[eventIndex].m_type == IPCET_DebugEvent &&
+                                IsEventReady(m_pEventBuffers[eventIndex]))
+                            {
+                                m_rghEventReadyEvent[IPCET_DebugEvent]->Set();
+                                break;
+                            }
+                        }
+                    }
+#endif // RIGHT_SIDE_COMPILE
 
                     bool typeWasEmpty = true;
                     for (DWORD index = 0; index < m_cValidEventBuffers; index++)
@@ -2590,7 +2678,10 @@ void DbgTransportSession::TransportWorker()
                         ipcEventType,
                         m_cValidEventBuffers);
 #endif // RIGHT_SIDE_COMPILE && HOST_WINDOWS
-                    m_rghEventReadyEvent[ipcEventType]->Set();
+                    if (IsEventReady(entry))
+                    {
+                        m_rghEventReadyEvent[ipcEventType]->Set();
+                    }
                 }
             }
             break;

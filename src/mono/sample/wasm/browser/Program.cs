@@ -12,6 +12,7 @@ namespace Sample
     {
         public static Task<int> Main(string[] args)
         {
+            System.Diagnostics.Debugger.Break();
             DisplayMeaning(42);
             return Task.FromResult(0);
         }
