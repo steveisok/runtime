@@ -25,5 +25,13 @@ namespace Sample
         {
             Console.WriteLine("Meaning of life is " + await meaningPromise);
         }
+
+        [JSExport]
+        internal static void SecondBreak()
+        {
+            int secondMeaning = 42;
+            System.Diagnostics.Debugger.Break();
+            DisplayMeaning(secondMeaning);
+        }
     }
 }

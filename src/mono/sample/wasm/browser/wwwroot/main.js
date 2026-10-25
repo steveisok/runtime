@@ -29,6 +29,7 @@ try {
     const exports = await getAssemblyExports("Wasm.Browser.Sample");
     await exports.Sample.Test.PrintMeaning(delay(2000).then(() => 42));
     const exitCode = await dotnet.run();
+    exports.Sample.Test.SecondBreak();
     console.log(`Program has exited with code ${exitCode}.`);
     exit(exitCode);
 }
